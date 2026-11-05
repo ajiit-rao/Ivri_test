@@ -1,0 +1,27 @@
+
+name: Branch Name Validation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+jobs:
+  validate-branch-name:
+    name: Check Branch Naming Convention
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Validate source branch
+        env:
+          BRANCH_NAME: ${{ github.head_ref }}
+        run: |
+          echo "Checking branch: $BRANCH_NAME"
+
+          if [[ "$BRANCH_NAME" =~ ^(feature|bugfix|hotfix|docs|refactor|chore)/[a-z0-9-]+/[a-z0-9]+(-[a-z0-9]+)*$ ]]; then
+            echo "Branch name is valid."
+          else
+            echo "Invalid branch name!"
+            echo "Expected: type/developer-name/task-name"
+            echo "Example: feature/anurag/add-stock-report"
+            exit 1
+          fi
