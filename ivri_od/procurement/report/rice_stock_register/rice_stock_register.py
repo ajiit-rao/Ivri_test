@@ -3,7 +3,9 @@
 normal rice delivery to FCI / RRC, progressive totals and C.B., in Quintal (4 decimals).
 
 Same filters as Paddy Stock Register (shared: ivri_od/procurement/stock_register.py): Mill, KMS Year,
-Season, District (blank = all districts), From / To Date. "Prog." columns count from the season Start Date.
+Season (Both / Kharif / Rabi), District (blank = all districts); no From / To Date: the days are the
+Season Master Start - End Date (not past today), else the first to the last day with data.
+"Prog." columns count from the season Start Date.
 
 Data sources (all of the Mill, KMS Year, Season and District):
 - Receipt from Milling: Paddy Stock Register's "Issue for Milling" of the same day (PVR "Paddy Milled
@@ -61,6 +63,7 @@ def execute(filters=None):
 
 	notes = []
 	movements = get_movements(filters, filters.to_date, notes)
+	stock_register.set_period(filters, season, movements)
 	data = build_rows(season.start_date, filters.from_date, filters.to_date, 0, movements)
 
 	title = stock_register.get_title("RICE STOCK REGISTER", filters)
@@ -106,7 +109,8 @@ def get_receipts_from_milling(filters, to_date):
 
 
 def get_deliveries(filters, to_date, notes):
-	"""(date, DELIVERY_FCI / DELIVERY_RRC, qty) of the KMS Year whose DC is of the Season and District
+	"""(date, DELIVERY_FCI / DELIVERY_RRC, qty) of the KMS Year whose DC is of the Season (Kharif or
+	Rabi for Both) and District
 	(every District when blank)."""
 	year = int(season_master_year(filters.kms_year))
 	dcs = _Figures(filters.mill, year, [], None, to_date).view_dcs()  # {DC No.: District, Season, ...}
@@ -124,7 +128,7 @@ def get_deliveries(filters, to_date, notes):
 			if not dc or (filters.district and not district):
 				without_dc += 1
 				continue
-			if (dc.season or "").strip().casefold() != filters.season.casefold():
+			if not stock_register.season_matches(dc.season, filters.crop_season):
 				continue
 			if filters.district and _match_key(district) != _match_key(filters.district):
 				continue

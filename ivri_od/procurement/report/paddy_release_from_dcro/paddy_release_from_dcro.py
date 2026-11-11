@@ -11,6 +11,7 @@ its Paddy Released of all orders of the mill and Season (Kharif / Rabi) up to an
 rejected or cancelled orders release nothing (see procurement/dcro_paddy_release.py).
 Data comes from Portal Data Extraction (agent) -> Portal Record; see procurement/portal_report.py."""
 
+from ivri_od.procurement import dcro_filters
 from ivri_od.procurement.dcro_paddy_release import district_cells
 from ivri_od.procurement.portal_report import section_report
 
@@ -26,4 +27,8 @@ BALANCE = {
 
 
 def execute(filters=None):
-	return section_report(filters, SECTION, site="DCRO", date_column=DATE_COLUMN, transform=district_cells)
+	# Mill Name, KMS Year, Season (Both / Kharif / Rabi), District: shared DCRO filters (dcro_filters.py).
+	keep = dcro_filters.row_filter(filters, "KMS Year", "Season", dcro_filters.district_in_headers())
+	return section_report(
+		filters, SECTION, site="DCRO", date_column=DATE_COLUMN, transform=district_cells, row_filter=keep
+	)

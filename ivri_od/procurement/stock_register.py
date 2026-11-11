@@ -1,11 +1,13 @@
 # Copyright (c) 2026, Profezzo and contributors
 """Shared logic of the day-wise stock registers (Paddy Stock Register, Rice Stock Register).
 
-- Filters: Mill Name (Mill Master), KMS Year ("25-26"), Season (Kharif / Rabi), District
-  (District Master, printed as "AC - <District>"), From / To Date.
-- Season from Season Master (KMS Year + Kharif / Rabi). Start / End Date are optional: the data
-  is already of that KMS Year and season, so without a Start Date "Prog." totals count every
-  movement up to the day; with one, they count from it.
+- Filters: Mill Name (Mill Master), KMS Year ("25-26"), Season (Both / Kharif / Rabi), District
+  (District Master, printed as "AC - <District>"). No From / To Date (as in Stock Account for Paddy).
+- Season from Season Master (KMS Year + Kharif / Rabi; Both = the two). Start / End Date are
+  optional: the data is already of that KMS Year and season, so without a Start Date "Prog."
+  totals count every movement up to the day; with one, they count from it.
+- Days shown (set_period): Season Master Start Date - End Date (not past today), else the first
+  to the last day with data.
 - day_rows(): one entry per day with O.B., the day's movements, progressive totals and C.B.
   Each report turns these into its own columns.
 """
@@ -17,31 +19,35 @@ from collections import defaultdict
 
 import frappe
 from frappe import _
-from frappe.utils import add_days, date_diff, flt, formatdate, getdate
+from frappe.utils import add_days, date_diff, flt, getdate
 
 from ivri_od.procurement.report.stock_account_for_paddy.stock_account_for_paddy import (
+	BOTH_SEASONS,
+	CROP_SEASONS,
+	NO_END,
+	get_kms_season_masters,
 	season_master_year,
+	season_period,
 )
 
-SEASONS = ("Kharif", "Rabi")
+SEASONS = CROP_SEASONS
 
 
 ALL_DISTRICTS = "All Districts"
 
 
 def validate_filters(filters, district_required=True):
-	"""Check the common filters, set filters.company and filters.ac (the District filter) and return
-	the Season Master (name, start_date, end_date).
+	"""Check the common filters, set filters.company, filters.ac (the District filter),
+	filters.season ("Both" / "Kharif" / "Rabi"), filters.crop_season (None for Both) and
+	filters.to_date (upper limit for reading data; set_period() sets the real days). Returns the
+	season(s): frappe._dict(names, start_date, end_date).
 
 	With ``district_required=False`` the District may be blank: filters.district stays empty
 	(= all districts) and filters.ac is "All Districts"."""
 	mandatory = [
 		("mill", _("Mill Name")),
 		("kms_year", _("KMS Year")),
-		("season", _("Season")),
 		("district", _("District")),
-		("from_date", _("From Date")),
-		("to_date", _("To Date")),
 	]
 	if not district_required:
 		mandatory = [m for m in mandatory if m[0] != "district"]
@@ -49,8 +55,11 @@ def validate_filters(filters, district_required=True):
 		if not filters.get(fieldname):
 			frappe.throw(_("{0} is mandatory").format(label))
 
-	if filters.season not in SEASONS:
-		frappe.throw(_("Season must be Kharif or Rabi"))
+	season = (filters.get("season") or BOTH_SEASONS).strip()
+	if season not in (BOTH_SEASONS, *SEASONS):
+		frappe.throw(_("Season must be Both, Kharif or Rabi"))
+	filters.season = season
+	filters.crop_season = None if season == BOTH_SEASONS else season
 
 	# The mill's company and the District account (AC) are printed in the heading.
 	filters.company = frappe.db.get_value("Mill Master", filters.mill, "company")
@@ -64,47 +73,46 @@ def validate_filters(filters, district_required=True):
 		filters.district = None
 		filters.ac = ALL_DISTRICTS
 
-	season = get_season(filters.kms_year, filters.season)
-
-	filters.from_date = getdate(filters.from_date)
-	filters.to_date = getdate(filters.to_date)
-	if filters.from_date > filters.to_date:
-		frappe.throw(_("From Date must be before To Date"))
-	if season.start_date and filters.from_date < season.start_date:
-		frappe.throw(
-			_("From Date {0} is before the start of {1} ({2}).").format(
-				formatdate(filters.from_date), season.name, formatdate(season.start_date)
-			)
-		)
-	if season.end_date and filters.to_date > season.end_date:
-		frappe.throw(
-			_("To Date {0} is after the end of {1} ({2}).").format(
-				formatdate(filters.to_date), season.name, formatdate(season.end_date)
-			)
-		)
-	return season
+	seasons = get_seasons(filters.kms_year, filters.crop_season)
+	filters.from_date = None
+	filters.to_date = seasons.end_date or NO_END
+	return seasons
 
 
-def get_season(kms_year, crop_season):
-	"""Season Master of the KMS Year and season, e.g. 25-26 + Kharif -> "Kharif 2025"."""
-	season = frappe.db.get_value(
-		"Season Master",
-		{"year": season_master_year(kms_year), "crop_season": crop_season},
-		["name", "start_date", "end_date"],
-		as_dict=True,
-	)
-	if not season:
-		frappe.throw(_("No Season Master for {0} in KMS Year {1}").format(crop_season, kms_year))
-	# Start Date is optional (None = no lower limit): the data is already filtered by KMS Year and season.
-	season.start_date = getdate(season.start_date) if season.start_date else None
-	season.end_date = getdate(season.end_date) if season.end_date else None
-	return season
+def get_seasons(kms_year, crop_season=None):
+	"""Season Master(s) of the KMS Year: only ``crop_season``'s, or Kharif and Rabi when None.
+	start_date / end_date: earliest Start / latest End Date, None unless every season has it."""
+	masters = get_kms_season_masters(kms_year, crop_season)  # stops when there is none
+	start, end = season_period(masters)
+	return frappe._dict(names=[m.name for m in masters], start_date=start, end_date=end)
+
+
+def season_matches(value, crop_season):
+	"""True when a row's Season (e.g. "KHARIF") is ``crop_season``, or Kharif / Rabi for Both (None).
+	Rows without a Season never match."""
+	value = (value or "").strip().casefold()
+	if crop_season:
+		return value == crop_season.casefold()
+	return value in {s.casefold() for s in SEASONS}
+
+
+def set_period(filters, seasons, movements):
+	"""Set filters.from_date / to_date: the Season Master Start - End Date (End not later than today,
+	unless there is data after today), else the first to the last day of the movements; today when
+	there is no data at all."""
+	dates = [getdate(movement[0]) for movement in movements]
+	today = getdate()
+	last = max(dates) if dates else today
+	from_date = seasons.start_date or (min(dates) if dates else today)
+	to_date = min(seasons.end_date, max(today, last)) if seasons.end_date else last
+	filters.from_date, filters.to_date = from_date, max(to_date, from_date)
 
 
 def get_title(register, filters):
-	"""e.g. "PADDY STOCK REGISTER KMS 2025-26 M/s <Company> , AC - <AC>, Kharif"."""
+	"""e.g. "PADDY STOCK REGISTER KMS 2025-26 M/s <Company> , AC - <AC>, Kharif" ("Kharif & Rabi" for Both)."""
 	kms = f"20{filters.kms_year}" if filters.kms_year else ""
-	return f"{register} KMS {kms} M/s {filters.company} , AC - {filters.ac}, {filters.season}"
+	season = " & ".join(SEASONS) if filters.season == BOTH_SEASONS else filters.season
+	return f"{register} KMS {kms} M/s {filters.company} , AC - {filters.ac}, {season}"
 
 
 def day_rows(season_start, from_date, to_date, season_opening, movements, receipts, disposals, others=()):

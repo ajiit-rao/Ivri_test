@@ -35,6 +35,7 @@ from ivri_od.procurement.report.paddy_release_from_dcro.paddy_release_from_dcro 
 from ivri_od.procurement.transit_pass_resolve import mill_id_from_transit_pass, resolve_ppc_master_name
 
 DCRO_KMS_COLUMN = "KMS Year"  # Page Filter Columns "KMS Year = #INTKMS"
+DCRO_SEASON_COLUMN = "Season"  # "KHARIF" / "RABI" (same column as dcro_paddy_release.SEASON_COLUMN)
 RECEIPTS = ("pacs", "wshgs", "other_rect")
 ISSUES = ("issue_for_milling", "driage")
 PADDY_RELEASED = "paddy_released"
@@ -42,9 +43,19 @@ OTHERS = (PADDY_RELEASED,)  # only shown: not a stock movement, never changes OB
 PRECISION = 2
 
 
+BOTH_SEASONS = "Both"
+CROP_SEASONS = ("Kharif", "Rabi")
+# Upper limit when the data itself decides the period (no Season Master End Date).
+NO_END = getdate("2999-12-31")
+
+
 def execute(filters=None):
+	"""Season filter (Both / Kharif / Rabi) in place of From Month - To Month: the months shown are
+	the Season Master Start Date - End Date of the chosen season(s), else (dates not set) the first
+	to the last month with data. Transit Passes, DCRO Paddy Release and Issue for Milling are of
+	the chosen season(s) only."""
 	filters = frappe._dict(filters or {})
-	from_date, to_date = validate_filters(filters)
+	crop_season = validate_season_filters(filters)
 
 	if filters.kms_year not in get_kms_years(filters.mill):
 		# No Transit Pass of the mill in the KMS Year: no statement.
@@ -52,16 +63,76 @@ def execute(filters=None):
 			filters.mill, filters.kms_year
 		)
 
-	seasons = get_kms_seasons(filters.kms_year)
-	passes, skipped_passes = get_transit_passes(filters, seasons, to_date)
-	releases = get_dcro_releases(filters, to_date)
+	seasons = get_kms_season_masters(filters.kms_year, crop_season)
+	start, end = season_period(seasons)
+	to_date = end or NO_END
+	passes, skipped_passes = get_transit_passes(filters, [s.name for s in seasons], to_date)
+	releases = get_dcro_releases(filters, to_date, crop_season=crop_season)
 	paddy_released = [(date, PADDY_RELEASED, qty) for date, _column, qty in releases]
-	opening, movements = classify(
-		tp_receipts(passes) + paddy_released + get_issue_for_milling(filters, to_date), from_date
+	movements = (
+		tp_receipts(passes) + paddy_released + get_issue_for_milling(filters, to_date, crop_season=crop_season)
 	)
-	data = build_rows(get_months(from_date, to_date), opening, movements)
+	from_date, to_date = statement_period(start, end, movements)
+	opening, by_month = classify(movements, from_date)
+	data = build_rows(get_months(from_date, to_date), opening, by_month)
 
 	return get_columns(), data, get_message(skipped_passes, filters, releases)
+
+
+def validate_season_filters(filters):
+	"""Mill, KMS Year, District and Season are needed; no dates. Returns the crop season
+	("Kharif" / "Rabi"), or None for both. Sets filters.company (printed in the heading)."""
+	for fieldname, label in (
+		("mill", _("Mill Name")),
+		("kms_year", _("KMS Year")),
+		("paddy_account", _("District")),
+	):
+		if not filters.get(fieldname):
+			frappe.throw(_("{0} is mandatory").format(label))
+	season = (filters.get("season") or BOTH_SEASONS).strip()
+	if season not in (BOTH_SEASONS, *CROP_SEASONS):
+		frappe.throw(_("Season must be Both, Kharif or Rabi"))
+	filters.season = season
+
+	filters.company = frappe.db.get_value("Mill Master", filters.mill, "company")
+	if not filters.company:
+		frappe.throw(_("Set the Company in Mill Master {0}").format(filters.mill))
+	return None if season == BOTH_SEASONS else season
+
+
+def get_kms_season_masters(kms_year, crop_season=None):
+	"""Season Masters (name, start_date, end_date) of the KMS Year; only the crop season's when given."""
+	conditions = {"year": season_master_year(kms_year)}
+	if crop_season:
+		conditions["crop_season"] = crop_season
+	seasons = frappe.get_all("Season Master", filters=conditions, fields=["name", "start_date", "end_date"])
+	if not seasons:
+		frappe.throw(
+			_("No Season Master for {0} in KMS Year {1}").format(crop_season or _("Kharif or Rabi"), kms_year)
+		)
+	return seasons
+
+
+def season_period(seasons):
+	"""(earliest Start Date, latest End Date) of the seasons; each None unless every season has it."""
+	starts = [getdate(s.start_date) for s in seasons if s.start_date]
+	ends = [getdate(s.end_date) for s in seasons if s.end_date]
+	return (
+		min(starts) if len(starts) == len(seasons) else None,
+		max(ends) if len(ends) == len(seasons) else None,
+	)
+
+
+def statement_period(start, end, movements):
+	"""Months of the statement: Season Master dates when set, else the months of the data; this
+	month when there is no data at all."""
+	dates = [movement[0] for movement in movements]
+	today = getdate()
+	from_date = start or (min(dates) if dates else today)
+	to_date = end or (max(dates) if dates else today)
+	if to_date < from_date:
+		to_date = from_date
+	return getdate(get_first_day(from_date)), getdate(get_last_day(to_date))
 
 
 def validate_filters(filters):
@@ -244,16 +315,16 @@ def tp_receipts(passes):
 	]
 
 
-def get_issue_for_milling(filters, to_date):
+def get_issue_for_milling(filters, to_date, crop_season=None):
 	"""(date, "issue_for_milling", qty) from the Paddy Stock Register (PVR milling spread over the
-	week's days) of the mill, District and KMS Year, both seasons."""
+	week's days) of the mill, District and KMS Year; both seasons unless ``crop_season`` is given."""
 	# Imported here: the Paddy Stock Register imports from this module.
 	from ivri_od.procurement.report.paddy_stock_register.paddy_stock_register import (
 		get_issue_for_milling as register_issue_for_milling,
 	)
 
 	register_filters = frappe._dict(
-		mill=filters.mill, kms_year=filters.kms_year, district=filters.paddy_account, season=None
+		mill=filters.mill, kms_year=filters.kms_year, district=filters.paddy_account, season=crop_season
 	)
 	return [
 		(getdate(date), "issue_for_milling", flt(qty))
@@ -261,11 +332,12 @@ def get_issue_for_milling(filters, to_date):
 	]
 
 
-def get_dcro_releases(filters, to_date):
+def get_dcro_releases(filters, to_date, crop_season=None):
 	"""Paddy released for milling as (date, "issue_for_milling", qty) (shown as Paddy Released by
 	execute), from the DCRO Paddy Release
 	rows of the mill and KMS Year: only the District's columns (filters.paddy_account), rejected or
-	cancelled orders left out. Rows without a KMS Year are not counted."""
+	cancelled orders left out. Rows without a KMS Year are not counted. With ``crop_season``
+	("Kharif" / "Rabi") only the rows whose Season column is that season."""
 	year = cint(season_master_year(filters.kms_year))
 	skip_status = [word.lower() for word in DCRO_BALANCE["skip_status"]]
 	own_district = frappe.db.get_value("Mill Master", filters.mill, "district")
@@ -280,6 +352,8 @@ def get_dcro_releases(filters, to_date):
 	):
 		cells = _load(record.row_data)
 		if dcro_kms_year(cells.get(DCRO_KMS_COLUMN)) != year:
+			continue
+		if crop_season and (cells.get(DCRO_SEASON_COLUMN) or "").strip().casefold() != crop_season.casefold():
 			continue
 		release = dcro_release(cells, skip_status, filters.paddy_account, own_district, districts)
 		if release and release[0] <= to_date:

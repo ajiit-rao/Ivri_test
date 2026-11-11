@@ -62,6 +62,10 @@ const MVR_TOTAL_FIELDS = [
 	"rice_difference",
 ];
 
+// FRK is hidden on the form for now (FRK % and FRK Quantity rows, Total FRK Quantity). The values
+// stay saved and nothing is worked out from them. Set to false to show FRK again.
+const MVR_HIDE_FRK = true;
+
 // The Annexure-1 format shown on the form (rows I-XVI down, agencies across, as the print
 // format): [Sl. No., particulars, FCI / RRC / TOTAL, field, rows the Sl. No. spans (0 = spanned)].
 // Group lines are [group name].
@@ -78,8 +82,12 @@ const MVR_FORMAT = [
 	["RICE"],
 	["IX", "Rice received from milling till date", "", "rice_received_week", 1],
 	["X", "Prog. Rice received from milling till date", "", "prog_rice_received", 1],
-	["", "FRK %", "", "frk_percent", 1],
-	["", "FRK Quantity", "", "frk_qty", 1],
+	...(MVR_HIDE_FRK
+		? []
+		: [
+				["", "FRK %", "", "frk_percent", 1],
+				["", "FRK Quantity", "", "frk_qty", 1],
+		  ]),
 	["", "Prog. CMR Due", "", "prog_cmr_due", 1],
 	["XI", "Rice delivered during the week against DC", "FCI", "rice_delivered_week_fci", 3],
 	["", "", "RRC", "rice_delivered_week_rrc", 0],
@@ -111,6 +119,7 @@ frappe.ui.form.on("Miller Verification Report", {
 	},
 	refresh: (frm) => {
 		frm.mvr_format_signature = null;
+		frm.toggle_display("total_frk_qty", !MVR_HIDE_FRK);
 		ivri_od.mvr.render_format(frm);
 		if (frm.is_new()) {
 			ivri_od.mvr.load_figures(frm);
@@ -353,7 +362,9 @@ ivri_od.mvr.build_format = function (frm, wrapper, rows, editable) {
 			<thead><tr><th style="width:60px">${__("Sl. No.")}</th><th colspan="2">${__("PARTICULARS")}</th>${columns}<th class="text-center">${__("TOTAL")}</th></tr></thead>
 			<tbody>${body}</tbody>
 		</table></div>
-		${editable ? `<p class="text-muted small">${__("Grey figures are worked out from the portal data up to the Present Verification Date; type V. Paddy Milled during the week and FRK in the white boxes.")}</p>` : ""}`);
+		${editable ? `<p class="text-muted small">${MVR_HIDE_FRK
+			? __("Grey figures are worked out from the portal data up to the Present Verification Date; type V. Paddy Milled during the week in the white boxes.")
+			: __("Grey figures are worked out from the portal data up to the Present Verification Date; type V. Paddy Milled during the week and FRK in the white boxes.")}</p>` : ""}`);
 };
 
 // District (District Master; the mill's District to start with) and Season (Kharif / Rabi).

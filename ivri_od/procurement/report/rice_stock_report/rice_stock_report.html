@@ -61,7 +61,7 @@
 
 <div class="rice-stock-account">
 	<div class="heading">{%= frappe.utils.escape_html((filters.company || "").toUpperCase()) %}</div>
-	<div class="heading">STOCK ACCOUNT OF RICE FOR KMS {%= frappe.utils.escape_html(kms_label) %}</div>
+	<div class="heading">STOCK ACCOUNT OF RICE FOR KMS {%= frappe.utils.escape_html(kms_label) %}{% if (filters.season && filters.season !== "Both") { %} - {%= frappe.utils.escape_html(filters.season.toUpperCase()) %}{% } %}</div>
 	{% if (filters.district) { %}
 	<div class="heading">DISTRICT: {%= frappe.utils.escape_html(filters.district.toUpperCase()) %}</div>
 	{% } %}

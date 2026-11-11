@@ -13,9 +13,8 @@ function ppcFromPassKey(key) {
 frappe.listview_settings["Weigh Bridge Measurement"] = {
 	// The ID column (WBM-2026-00071) is not useful: RST No is the clickable first column.
 	hide_name_column: true,
-	// Party Name is only stored for Rice Dispatch and Local Paddy Purchase. Transit Pass (Government
-	// Paddy Purchase) records show their PPC Name there, else the PPC from the Pass Unique Key.
-	// Display only: nothing is saved.
+	// Party Name is copied from the RST on every RST save. Older records without it show their
+	// PPC Name, else the PPC from the Pass Unique Key. Display only: nothing is saved.
 	add_fields: ["pacs_name", "pass_unique_key"],
 	formatters: {
 		party_name(value, df, doc) {

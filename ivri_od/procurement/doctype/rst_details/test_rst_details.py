@@ -964,6 +964,26 @@ class TestRSTRegressionSyncNoDB(unittest.TestCase):
 		self.assertEqual(values["pass_unique_key"], "M051007-AGALPUR(S1)-K25-TP1")
 		self.assertNotIn("lot_no", values)
 
+	def test_corrected_party_replaces_old_party_on_weigh_bridge(self):
+		"""PPC Mismatch (old party LUHASI) corrected to TP Received: the Weigh Bridge must get the new party."""
+		self.db.exists.side_effect = lambda doctype, name=None: doctype == "Weigh Bridge Measurement"
+		self.db.get_value.return_value = ""
+		tp = frappe._dict(pass_unique_key="M051007-LUHASINGHA(S1050704)-R25-TP42")
+		rst = self._rst("TP Received", "42", "LUHASINGHA(S1050704)")
+		rst.weigh_bridge_measurement = "WBM-1"
+		with patch(f"{MODULE}.party_matches_any_transit_pass_ppc", return_value=True), patch(
+			f"{MODULE}.try_get_matching_transit_pass", return_value=tp
+		):
+			rst._sync_weigh_bridge_measurement()
+		sets = {call.args[0]: call.args[1] for call in self.get_doc.return_value.set.call_args_list}
+		self.assertEqual(sets["party_name"], "LUHASINGHA(S1050704)")
+		self.get_doc.return_value.save.assert_called_once_with(ignore_permissions=True)
+
+	def test_tp_no_not_received_sends_party_to_weigh_bridge(self):
+		with patch(f"{MODULE}.party_matches_any_transit_pass_ppc", return_value=True):
+			self._rst("TP No Not Received", "", "AGALPUR(S1)")._sync_weigh_bridge_measurement()
+		self.assertEqual(self.get_doc.call_args.args[0]["party_name"], "AGALPUR(S1)")
+
 	def test_invalid_tp_no_still_creates_nothing(self):
 		with patch(f"{MODULE}.party_matches_any_transit_pass_ppc", return_value=False), patch(
 			f"{MODULE}.try_get_matching_transit_pass", return_value=None

@@ -19,7 +19,17 @@
 - RRC Pending: lots of the DC in SCMS Transit Challan RRC that are not in SCMS Lot Search yet
   (sent to the RRC, not received).
   Both are shown only: no balance, total or Delivery % uses them.
-- VR Pending: not read yet, always 0.
+  A click on FCI Pending / RRC Pending (also on the Total line) opens those lots: the challan
+  rows as read from the portal (get_pending_lots), by the same rule as the count.
+- VR Pending = (sum of "Quantity of Requisition" of the mill's DCRO Requisition for DC rows of
+  the season / Lot Quantity of Rice Lot Quantity) - (FCI DC Issue + RRC DC Issue), in lots:
+  lots requisitioned that have no DC yet
+  (rounded half up). Rows of the season: KMS Year starts with the season year and Season is the
+  crop season. The quantity is split by district on the portal ("Quantity of Requistion (Own
+  District) (in Qtl)", "... (Other District) (in Qtl)", "... 2"): as in Paddy Release, Own
+  District is the mill's District in Mill Master, an Other District the District Master name in
+  the header. No District filter: every column added up; with one, only that District's columns.
+  Rejected or cancelled requisitions ("Status of Requisition") are not counted.
 - Delivery %: rice delivered (Total Delivery x Lot Quantity) against CMR Due.
 - District (optional filter; blank = every district): a mill gets separate DCs for each district.
   DCs: the District column of the DC's View DC from DCRO row (read from the DC PDF or set by hand);
@@ -28,14 +38,18 @@
   Only mills with paddy or DCs in the District are shown."""
 
 import math
+import re
 
 import frappe
 from frappe import _
 from frappe.utils import flt
 
+from ivri_od.procurement.dcro_paddy_release import _known_district, district_names, mill_districts
 from ivri_od.procurement.doctype.season_master.season_master import resolve_season_master_name
-from ivri_od.procurement.portal_sync import DISTRICT_COLUMN, NO_DISTRICT, _match_key
+from ivri_od.procurement.portal_report import _key
+from ivri_od.procurement.portal_sync import DISTRICT_COLUMN, NO_DISTRICT, NOISE_HEADER, _match_key
 from ivri_od.procurement.report.dc_track.dc_track import (
+	BUTTON_COLUMNS,
 	DC_NO,
 	LOT_NO,
 	MILL,
@@ -92,13 +106,15 @@ def execute(filters=None):
 	}
 	paddy = _paddy_received(filters.season, filters.district)
 	lots, dcs_without_district = _dc_lots(season, filters.district)
+	requisitions = _requisition_qty(season, filters.district)
 
 	data, missing = [], set()
 	for mill in _mills(filters, paddy, lots):
 		rate = setup.get((mill.type or "").upper())
 		if not rate:
 			missing.add(mill.type or _("(no Type)"))
-		data.append(_line(mill, rate, paddy.get(mill.name, 0), lots.get(mill.name.upper(), {})))
+		mill_lots = {**lots.get(mill.name.upper(), {}), "requisition_qty": requisitions.get(mill.name.upper(), 0)}
+		data.append(_line(mill, rate, paddy.get(mill.name, 0), mill_lots))
 	if data:
 		data.append(_total(data))
 
@@ -144,11 +160,25 @@ def _paddy_received(season, district=None) -> dict:
 def _dc_lots(season, district=None):
 	"""({MILL CODE: {fci_issue, fci_delivery, fci_pending, rrc_issue, rrc_delivery, rrc_pending}},
 	DCs of the season with no District) from the season's DCs; with ``district``, only its DCs."""
+	dcs, without_district = _season_dcs(season, district)
+	lots = {}
+	for dc in dcs:
+		kind = dc["dc_type"].lower()
+		mill = lots.setdefault(dc["mill_id"].upper(), {})
+		mill[f"{kind}_issue"] = mill.get(f"{kind}_issue", 0) + (dc["total_lots"] or 0)
+		mill[f"{kind}_delivery"] = mill.get(f"{kind}_delivery", 0) + len(dc["lots"])
+		mill[f"{kind}_pending"] = mill.get(f"{kind}_pending", 0) + len(dc.get("pending") or ())
+	return lots, without_district
+
+
+def _season_dcs(season, district=None):
+	"""([dc], DCs of the season with no District): FCI / RRC DCs of the season with a mill, with
+	their deliveries and pending lots; with ``district``, only its DCs."""
 	dcs = _dcs_from_view_dc()
 	_add_deliveries(dcs)
 	_add_pending(dcs)
 	district_of = _dc_districts() if district else {}
-	lots, without_district = {}, 0
+	out, without_district = [], 0
 	for dc_no, dc in dcs.items():
 		if not dc["mill_id"] or not _in_season(dc, season):
 			continue
@@ -159,14 +189,47 @@ def _dc_lots(season, district=None):
 				continue
 			if dc_district != _match_key(district):
 				continue
-		kind = dc["dc_type"].lower()
-		if kind not in ("fci", "rrc"):
+		if dc["dc_type"].lower() not in ("fci", "rrc"):
 			continue
-		mill = lots.setdefault(dc["mill_id"].upper(), {})
-		mill[f"{kind}_issue"] = mill.get(f"{kind}_issue", 0) + (dc["total_lots"] or 0)
-		mill[f"{kind}_delivery"] = mill.get(f"{kind}_delivery", 0) + len(dc["lots"])
-		mill[f"{kind}_pending"] = mill.get(f"{kind}_pending", 0) + len(dc.get("pending") or ())
-	return lots, without_district
+		out.append(dc)
+	return out, without_district
+
+
+@frappe.whitelist()
+def get_pending_lots(season: str, kind: str, mill: str | None = None, district: str | None = None) -> dict:
+	"""Pop-up of FCI Pending / RRC Pending: the pending lots of the season (of ``mill``, or every
+	mill for the Total line; only the District's DCs with ``district``), as counted in the report.
+	Each lot: mill, DC No., Lot No. and the challan row's columns as read from the portal."""
+	kind = (kind or "").lower()
+	if kind not in ("fci", "rrc"):
+		frappe.throw(_("Pending must be FCI or RRC"))
+	season_row = frappe.db.get_value("Season Master", season, ["crop_season", "year"], as_dict=True)
+	if not season_row:
+		frappe.throw(_("Season {0} not found").format(season))
+
+	dcs, _without = _season_dcs(season_row, district)
+	lots = []
+	for dc in dcs:
+		if dc["dc_type"].lower() != kind or (mill and dc["mill_id"].upper() != mill.upper()):
+			continue
+		for lot_no, row in (dc.get("pending_rows") or {}).items():
+			lots.append(
+				{
+					"mill": dc["mill_id"],
+					"dc_no": dc["dc_no"],
+					"lot_no": lot_no,
+					"cells": {
+						h: v for h, v in row.items() if not NOISE_HEADER.match(h) and _key(h) not in BUTTON_COLUMNS
+					},
+				}
+			)
+	lots.sort(key=lambda lot: (lot["mill"], lot["dc_no"], _lot_sort_key(lot["lot_no"])))
+	source = FCI_CHALLAN if kind == "fci" else RRC_CHALLAN
+	return {"kind": kind.upper(), "source": f"{source[0]} {source[1]}", "lots": lots}
+
+
+def _lot_sort_key(lot):
+	return (0, int(lot), "") if lot.isdigit() else (1, 0, lot)
 
 
 def _dc_districts() -> dict:
@@ -183,7 +246,8 @@ def _dc_districts() -> dict:
 
 
 def _add_pending(dcs: dict):
-	"""Put each DC's pending lots in dc["pending"] (a set of Lot No.).
+	"""Put each DC's pending lots in dc["pending"] (a set of Lot No.) and their challan rows in
+	dc["pending_rows"] ({Lot No.: cells}, the first row read of each lot).
 	FCI: DCRO Transit Challan rows whose Pending At is not Approved and with no Accepted Date.
 	RRC: SCMS Transit Challan RRC lots not in SCMS Lot Search (any status: it reached the RRC)."""
 	received = set()
@@ -214,6 +278,7 @@ def _add_pending(dcs: dict):
 					dc_type=_dc_type(dc_no, cells, []),
 				)
 			dc.setdefault("pending", set()).add(lot)
+			dc.setdefault("pending_rows", {}).setdefault(lot, cells)
 
 
 def _lot_no(value) -> str:
@@ -227,6 +292,51 @@ def _in_season(dc, season) -> bool:
 	if not (dc["kms_year"] or "").startswith(season.year or "-"):
 		return False
 	return not dc["season"] or dc["season"].casefold() == (season.crop_season or "").casefold()
+
+
+REQUISITION = ("DCRO", "Requisition for DC")
+REQUISITION_STATUS = ["statusofrequisition", "status"]
+# "Quantity of Requistion (Own District) (in Qtl)", "... (Other District)KORAPUT (in Qtl) 2".
+REQUISITION_HEADER = re.compile(
+	r"^quantity\s*of\s*requisi?tion\s*\((own|other)\s*district\)\s*(.*?)\s*\(in\s*qtl\)\s*\d*$", re.IGNORECASE
+)
+
+
+def _requisition_qty(season, district=None) -> dict:
+	"""{MILL CODE: "Quantity of Requisition" (Qtl)} of the DCRO Requisition for DC rows of the
+	season: every district's column, or only ``district``'s. Rejected / cancelled rows: not counted."""
+	districts, mills = district_names(), {m.upper(): d for m, d in mill_districts().items()}
+	out = {}
+	for record in _records(*REQUISITION):
+		cells = _load(record.row_data)
+		mill = (_cell(cells, MILL) or record.mill_id or "").upper()
+		if not mill or NOT_DELIVERED.search(_cell(cells, REQUISITION_STATUS)):
+			continue
+		row = {"kms_year": _cell(cells, ["kmsyear", "kms"]), "season": _cell(cells, ["season"])}
+		if not _in_season(row, season):
+			continue
+		for row_district, qty in requisition_by_district(cells, mills.get(mill), districts).items():
+			if not district or (row_district and _match_key(row_district) == _match_key(district)):
+				out[mill] = out.get(mill, 0) + qty
+	return out
+
+
+def requisition_by_district(cells, own_district, districts) -> dict:
+	"""{district (None when not known): Quantity of Requisition} of one row: the "Quantity of
+	Requistion (Own / Other District)" columns (spelt "Requistion" on the portal too)."""
+	out = {}
+	for header, value in cells.items():
+		match = REQUISITION_HEADER.match((header or "").strip())
+		if not match:
+			continue
+		if match.group(1).lower() == "own":
+			row_district = own_district
+		else:
+			row_district = _known_district(match.group(2), districts) if match.group(2).strip() else None
+		qty = flt(str(value or "").replace(",", ""))
+		if qty:
+			out[row_district] = out.get(row_district, 0) + qty
+	return out
 
 
 def _mills(filters, paddy, lots):
@@ -260,6 +370,8 @@ def _line(mill, rate, paddy_received, lots) -> dict:
 	rrc_issue, rrc_delivery = lots.get("rrc_issue", 0), lots.get("rrc_delivery", 0)
 	# Shown only: the pending lots are not part of any balance or total below.
 	fci_pending, rrc_pending = lots.get("fci_pending", 0), lots.get("rrc_pending", 0)
+	# VR Pending: lots requisitioned (DCRO Requisition for DC quantity / Lot Quantity) - DCs issued.
+	requisition_lots = _round_half_up(flt(lots.get("requisition_qty")) / lot_qty) if lot_qty else 0
 	total_delivery = fci_delivery + rrc_delivery
 	total_issued = fci_issue + rrc_issue
 	return {
@@ -283,7 +395,7 @@ def _line(mill, rate, paddy_received, lots) -> dict:
 		"total_dc_issued": total_issued,
 		"total_dc_issue_balance": total_lot - total_issued,
 		"total_delivery_balance": total_lot - total_delivery,
-		"vr_pending": 0,
+		"vr_pending": requisition_lots - (fci_issue + rrc_issue),
 		# Kept for the total row: rice (Qtl) in the delivered lots.
 		"delivered_rice": total_delivery * lot_qty,
 		"delivery_percent": _percent(total_delivery * lot_qty, cmr_due),

@@ -41,33 +41,15 @@ frappe.query_reports["Rice Stock Report"] = {
 			description: __("Only this district's DCs (District in View DC from DCRO). Empty: every district."),
 		},
 		{
-			// Calendar of months only (any year): picking a month gives its 1st day; the report
-			// takes the whole month.
-			fieldname: "from_month",
-			label: __("From Month"),
-			fieldtype: "Date",
-			options: { view: "months", minView: "months" },
+			// No From / To Month: the months come from the season (Season Master Start - End Date,
+			// else the first to the last month with data of the chosen season).
+			fieldname: "season",
+			label: __("Season"),
+			fieldtype: "Select",
+			options: "Both\nKharif\nRabi",
+			default: "Both",
 			reqd: 1,
-			default: frappe.datetime.month_start(),
-		},
-		{
-			fieldname: "to_month",
-			label: __("To Month"),
-			fieldtype: "Date",
-			options: { view: "months", minView: "months" },
-			reqd: 1,
-			default: frappe.datetime.month_end(),
-			// The calendar gives the 1st of the month: show its last day, so the user sees the
-			// whole month is counted (e.g. 31-01-2027).
-			on_change: (report) => {
-				const value = report.get_filter_value("to_month");
-				const month_end = value && moment(value).endOf("month").format("YYYY-MM-DD");
-				if (month_end && value !== month_end) {
-					report.set_filter_value("to_month", month_end); // runs this again, then refreshes
-				} else {
-					report.refresh();
-				}
-			},
+			description: __("Both: Kharif and Rabi of the KMS Year. Months are shown automatically"),
 		},
 		{
 			fieldname: "company",

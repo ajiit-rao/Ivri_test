@@ -11,6 +11,8 @@ from ivri_od.procurement.report.joint_custody_and_maintenance_charge_report.join
 	get_kms_months,
 	get_summary,
 	get_total_row,
+	get_entries,
+	split_entries,
 	validate_filters,
 )
 
@@ -79,16 +81,35 @@ class TestJointCustodyAndMaintenanceChargeReport(IntegrationTestCase):
 		self.assertEqual(summary["payable"], 0)
 
 	@patch(f"{MODULE}.get_kms_years", return_value=["24-25"])
-	def test_months_are_taken_whole_in_any_year(self, _years):
-		# KMS 24-25, but months of 2027 may be chosen too.
-		filters = frappe._dict(
-			mill="M1", kms_year="24-25", district="D1", from_month="2027-01-01", to_month="2027-03-01"
-		)
-		self.assertEqual(validate_filters(filters), (date(2027, 1, 1), date(2027, 3, 31)))
+	def test_season_filter_values(self, _years):
+		base = dict(mill="M1", kms_year="24-25", district="D1")
+		self.assertIsNone(validate_filters(frappe._dict(base)))  # empty: Both
+		self.assertIsNone(validate_filters(frappe._dict(base, season="Both")))
+		self.assertEqual(validate_filters(frappe._dict(base, season="Kharif")), "Kharif")
+		self.assertEqual(validate_filters(frappe._dict(base, season="Rabi")), "Rabi")
+		self.assertRaises(frappe.ValidationError, validate_filters, frappe._dict(base, season="Summer"))
+		# No From / To Month needed; District still is.
+		self.assertRaises(frappe.ValidationError, validate_filters, frappe._dict(mill="M1", kms_year="24-25"))
 
-	@patch(f"{MODULE}.get_kms_years", return_value=["24-25"])
-	def test_from_month_after_to_month_is_refused(self, _years):
-		filters = frappe._dict(
-			mill="M1", kms_year="24-25", district="D1", from_month="2025-03-01", to_month="2025-01-31"
+	def test_season_keeps_its_own_entries(self):
+		kharif = frappe._dict(name="Kharif 2024")
+		passes = [frappe._dict(transit_pass_date="2024-12-10", quantity=100, is_wshg=0)]
+		transfers = [(date(2024, 12, 5), "transfer", 50), (date(2025, 5, 5), "transfer", 70)]
+		with (
+			patch(f"{MODULE}.get_transit_passes", return_value=(passes, [])) as tps,
+			patch(f"{MODULE}.get_transfers", return_value=transfers),
+			patch(f"{MODULE}.get_issue_for_milling", return_value=[(date(2025, 1, 2), "issue_for_milling", 30)]) as issue,
+		):
+			entries, _skipped = get_entries(
+				frappe._dict(mill="M1", kms_year="24-25", district="D1"),
+				[kharif], "Kharif", date(2024, 10, 1), date(2025, 3, 31),
+			)
+		tps.assert_called_with(tps.call_args[0][0], ["Kharif 2024"], date(2025, 3, 31))
+		self.assertEqual(issue.call_args.kwargs["crop_season"], "Kharif")
+		# The May transfer is after Kharif's End Date: not counted.
+		self.assertEqual(
+			sorted(entries), [(date(2024, 12, 5), "transfer", 50), (date(2024, 12, 10), "pacs", 100), (date(2025, 1, 2), "issue", 30)]
 		)
-		self.assertRaises(frappe.ValidationError, validate_filters, filters)
+		opening, movements = split_entries(entries, date(2025, 1, 1), date(2025, 3, 31))
+		self.assertEqual(opening, 150)  # December receipts before the first month shown
+		self.assertEqual(movements[date(2025, 1, 1)]["issue"], 30)

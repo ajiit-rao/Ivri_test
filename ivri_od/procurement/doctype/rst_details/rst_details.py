@@ -195,6 +195,9 @@ class RSTDetails(Document):
 		values = {
 			"demo_rst_data": self.name,
 			"rst_no": self.rst_no,
+			# Party Name always follows the RST, whatever the status. A corrected party (e.g. PPC Mismatch
+			# fixed to TP Received) must replace the old name on the Weigh Bridge.
+			"party_name": (self.party_name or "").strip(),
 			"load_weight": flt(self.gross_vehicle_weight_qt),
 			"tare_weight": flt(self.tare_vehicle_weight_qt),
 			"deduction": flt(self.deduction_qt),
@@ -254,9 +257,6 @@ class RSTDetails(Document):
 					"vehicle_no": "",
 				}
 			)
-			if unresolved:
-				# Shown in the Weigh Bridge list, so the user sees which party was typed.
-				values["party_name"] = (self.party_name or "").strip()
 		else:
 			tp_vehicle_no = ""
 			if transit_pass.pass_unique_key:

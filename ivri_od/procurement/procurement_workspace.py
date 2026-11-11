@@ -54,6 +54,7 @@ DCRO_REPORTS: list[tuple[str, str, str]] = [
 	("Paddy Release from DCRO", "truck", "Green"),
 	("View DC from DCRO", "file-text", "Blue"),
 	("DC Transit Challan from DCRO", "file-check", "Orange"),
+	("Requisition for DC from DCRO", "clipboard", "Purple"),
 ]
 
 # One line per DC: lots to deliver (View DC) against lots delivered (DC Transit Challan,

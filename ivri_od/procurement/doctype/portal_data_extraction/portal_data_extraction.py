@@ -85,6 +85,13 @@ def get_session_config(name: str) -> dict:
 			for row in site.sections
 			if row.enabled and row.page_match and row.extract_on_click
 		],
+		# Elements the agent clicks itself before reading (e.g. DCRO Requisition for DC: the + of
+		# dvmillerhistory that opens the table); "table_match" tells when it is open already.
+		"auto_clicks": [
+			{"page_match": row.page_match, "targets": row.auto_click_before_read, "table_match": row.table_match or ""}
+			for row in site.sections
+			if row.enabled and row.page_match and row.auto_click_before_read
+		],
 		# Pages read as soon as they open, without a Search click (e.g. WINGS e_tec).
 		"open_reads": [row.page_match for row in site.sections if row.enabled and row.page_match and row.read_on_open],
 		# Words before the mill's ID on the dashboard or page (e.g. Mill ID, Miller Code).

@@ -560,7 +560,7 @@ def set_ac_note_values(
 	Date and Net Weight by hand. Values the AC Note gives are read from it (they come first and
 	cannot be changed); the others are kept as set by hand when the row is read again. A later
 	download from the portal replaces the attached AC Note. An empty value drops the hand entry
-	(Net Weight: back to the master's Net Quantity). Returns the values saved, as shown."""
+	(Net Weight: back to 0). Returns the values saved, as shown."""
 	_check_access()
 	doc = frappe.get_doc("Portal Record", record)
 	doc.check_permission("read")

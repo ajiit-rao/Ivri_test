@@ -17,6 +17,11 @@
   Transit Challan row; RRC - the file saved from the SCMS Lot Search row.
 A DC found only in a delivery report (its View DC row not read yet) is still listed,
 with status "DC Not in View DC".
+Depot Name: of the View DC row (table 2 of the DC PDF), else the depot of its delivery rows
+(DCRO DC Transit Challan "Depot Name", SCMS Lot Search "Depot").
+District: of the View DC row (read from the DC PDF or set by hand), else the District of its
+SCMS Lot Search rows. Filters: KMS Year (blank = every year), Season (Both = every DC, Kharif /
+Rabi = only DCs with that Season in View DC) and District (blank = every district).
 Data comes from Portal Data Extraction (agent) -> Portal Record; see procurement/portal_report.py."""
 
 import re
@@ -25,7 +30,14 @@ import frappe
 from frappe import _
 
 from ivri_od.procurement.portal_report import MAX_RECORDS, _date_sort_key, _detail_sum, _get_details, _key, _load
-from ivri_od.procurement.portal_sync import NOISE_HEADER
+from ivri_od.procurement.portal_sync import DEPOT_COLUMN, DISTRICT_COLUMN, NO_DISTRICT, NOISE_HEADER, _match_key
+from ivri_od.procurement.report.stock_account_for_paddy.stock_account_for_paddy import (
+	dcro_kms_year,
+	season_master_year,
+)
+
+BOTH_SEASONS = "Both"
+SEASONS = ("Kharif", "Rabi")
 
 DC_SOURCE = ("DCRO", "View DC")
 # (site, section, label shown in "Delivered From")
@@ -41,6 +53,7 @@ MILL = ["millercode", "millcode", "millerid", "millid"]
 MILL_NAME = ["millername", "millname"]
 DC_DATE = ["generateddate", "dcdate", "date"]
 STATUS = ["pendingat", "challanstatus", "status"]
+DELIVERY_DEPOT = ["depotname", "depot"]  # DCRO DC Transit Challan, SCMS Lot Search
 DELIVERY_DATE = ["receiptdate", "transitchallandate"]
 
 # A delivery row with this status does not count as a delivered lot.
@@ -66,6 +79,7 @@ NOT_IN_VIEW_DC = "DC Not in View DC"
 
 def execute(filters=None):
 	filters = frappe._dict(filters or {})
+	validate_filters(filters)
 	dcs = _dcs_from_view_dc()
 	_add_deliveries(dcs)
 
@@ -73,6 +87,22 @@ def execute(filters=None):
 	data = [row for row in data if _matches(row, filters)]
 	data.sort(key=lambda r: (r["dc_date"] or "", r["dc_no"]), reverse=True)
 	return _columns(), data, None, None, _summary(data)
+
+
+def validate_filters(filters):
+	"""Season: Both (default) / Kharif / Rabi. KMS Year: "25-26" (blank = every year); sets
+	filters.kms_first_year (2025) for matching the rows' "2025-26" / "2025-2026"."""
+	season = (filters.get("season") or BOTH_SEASONS).strip()
+	if season not in (BOTH_SEASONS, *SEASONS):
+		frappe.throw(_("Season must be Both, Kharif or Rabi"))
+	filters.season = season
+	filters.kms_first_year = int(season_master_year(filters.kms_year)) if filters.get("kms_year") else None
+
+
+def _district(cells) -> str:
+	"""District of a portal row; "" when not set or not matched."""
+	district = (cells.get(DISTRICT_COLUMN) or "").strip()
+	return "" if district == NO_DISTRICT else district
 
 
 def _dcs_from_view_dc() -> dict:
@@ -91,6 +121,8 @@ def _dcs_from_view_dc() -> dict:
 			dc_no,
 			mill_id=_cell(cells, MILL) or record.mill_id or "",
 			mill_name=_cell(cells, MILL_NAME),
+			district=_district(cells),
+			depot=(cells.get(DEPOT_COLUMN) or "").strip(),
 			kms_year=_cell(cells, ["kmsyear", "kms"]),
 			season=_cell(cells, ["season"]),
 			dc_date=_iso_date(_cell(cells, DC_DATE)),
@@ -120,6 +152,10 @@ def _add_deliveries(dcs: dict):
 					dc_type=_dc_type(dc_no, cells, []),
 				)
 			dc["sources"].add(label)
+			if not dc["district"]:
+				dc["district"] = _district(cells)  # e.g. SCMS Lot Search's own District
+			if not dc["depot"]:
+				dc["depot"] = _cell(cells, DELIVERY_DEPOT)  # DC not read from View DC yet
 			if NOT_DELIVERED.search(_cell(cells, STATUS)):
 				dc["not_counted"] += 1
 				continue
@@ -135,6 +171,8 @@ def _dc(dc_no, **values) -> dict:
 		"dc_no": dc_no,
 		"mill_id": "",
 		"mill_name": "",
+		"district": "",
+		"depot": "",
 		"kms_year": "",
 		"season": "",
 		"dc_date": None,
@@ -172,7 +210,9 @@ def _line(dc) -> dict:
 	return {
 		"mill_id": dc["mill_id"],
 		"mill_name": dc["mill_name"],
+		"district": dc["district"],
 		"dc_no": dc["dc_no"],
+		"depot_name": dc["depot"],
 		"dc_date": dc["dc_date"],
 		"dc_type": dc["dc_type"],
 		"dc_note": dc["dc_note"],
@@ -197,6 +237,13 @@ def _matches(row, filters) -> bool:
 	if filters.dc_type and row["dc_type"] != filters.dc_type:
 		return False
 	if filters.status and row["status"] != filters.status:
+		return False
+	if filters.get("district") and _match_key(row["district"]) != _match_key(filters.district):
+		return False
+	if filters.get("kms_first_year") and dcro_kms_year(row["kms_year"]) != filters.kms_first_year:
+		return False
+	season = filters.get("season") or BOTH_SEASONS
+	if season != BOTH_SEASONS and (row["season"] or "").strip().casefold() != season.casefold():
 		return False
 	if filters.from_date and (not row["dc_date"] or row["dc_date"] < str(filters.from_date)):
 		return False
@@ -260,9 +307,12 @@ def _columns():
 	return [
 		{"fieldname": "mill_id", "label": _("Mill No."), "fieldtype": "Data", "width": 110},
 		{"fieldname": "mill_name", "label": _("Mill Name"), "fieldtype": "Data", "width": 200},
+		{"fieldname": "district", "label": _("District"), "fieldtype": "Data", "width": 120},
 		{"fieldname": "dc_no", "label": _("DC No."), "fieldtype": "Data", "width": 120},
 		{"fieldname": "dc_date", "label": _("DC Date"), "fieldtype": "Date", "width": 100},
 		{"fieldname": "dc_type", "label": _("DC Type"), "fieldtype": "Data", "width": 80},
+		# Table 2 of the DC PDF (View DC from DCRO), else the delivery rows' depot.
+		{"fieldname": "depot_name", "label": _("Depot Name"), "fieldtype": "Data", "width": 180},
 		# The DC document saved from View DC: a download link (see dc_track.js).
 		{"fieldname": "dc_note", "label": _("DC Note"), "fieldtype": "Data", "width": 100},
 		{"fieldname": "kms_year", "label": _("KMS Year"), "fieldtype": "Data", "width": 90},

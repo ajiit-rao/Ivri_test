@@ -629,6 +629,21 @@ def guard_weigh_bridge_trash(doc, method=None):
 		)
 
 
+def _new_warehouse_needs_location(doc) -> bool:
+	"""A new, non-group warehouse made by a user must name its Physical Location.
+
+	Existing warehouses are left alone. ERPNext's own default warehouses (made with a Company, flagged
+	ignore_mandatory) and installs, migrations, patches and data imports are skipped.
+	"""
+	is_new = getattr(doc, "is_new", None)
+	if not callable(is_new) or not is_new() or cint(doc.get("is_group")):
+		return False
+	if getattr(getattr(doc, "flags", None), "ignore_mandatory", False):
+		return False
+	flags = frappe.flags
+	return not (flags.in_install or flags.in_setup_wizard or flags.in_migrate or flags.in_patch or flags.in_import)
+
+
 def validate_warehouse(doc, method=None):
 	"""A warehouse mapped to a physical location. The legal Company owns the stock accounting-wise.
 
@@ -641,6 +656,12 @@ def validate_warehouse(doc, method=None):
 	unit = (doc.get("operating_unit") or "").strip()
 	location = (doc.get("physical_location") or "").strip()
 	if not unit and not location:
+		if _new_warehouse_needs_location(doc):
+			# Without a location it never shows in Quality Check > Unloading Point and holds no site stock.
+			frappe.throw(
+				_("Select the Physical Location of this warehouse. Without it, the warehouse cannot be used as an Unloading Point."),
+				title=_("Physical Location Required"),
+			)
 		return  # not an inventory warehouse: leave it alone
 	if unit:
 		if not frappe.db.exists("Mill Master", unit):

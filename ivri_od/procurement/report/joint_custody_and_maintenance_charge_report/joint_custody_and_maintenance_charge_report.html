@@ -107,8 +107,10 @@
 	<div class="sub-heading">
 		<span>Mill No: {%= frappe.utils.escape_html(filters.mill || "") %}</span>
 		<span>District: {%= frappe.utils.escape_html(filters.district || "") %}</span>
-		<span>Month: {%= frappe.utils.escape_html(filters.from_month ? moment(filters.from_month).format("MMM-YYYY") : "") %}
-			to {%= frappe.utils.escape_html(filters.to_month ? moment(filters.to_month).format("MMM-YYYY") : "") %}</span>
+		<span>Season: {%= frappe.utils.escape_html(filters.season === "Both" || !filters.season ? "Kharif & Rabi" : filters.season) %}</span>
+		{% var month_rows = data.filter(function (r) { return !r.bold; }); %}
+		<span>Month: {%= frappe.utils.escape_html(month_rows.length ? month_rows[0].month : "") %}
+			to {%= frappe.utils.escape_html(month_rows.length ? month_rows[month_rows.length - 1].month : "") %}</span>
 	</div>
 
 	<table class="statement">

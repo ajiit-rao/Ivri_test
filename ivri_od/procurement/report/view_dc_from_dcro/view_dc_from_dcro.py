@@ -21,17 +21,18 @@ import frappe
 from frappe import _
 from frappe.utils import flt, get_first_day, get_last_day, getdate
 
+from ivri_od.procurement import dcro_filters
 from ivri_od.procurement.portal_report import _load, section_report
 from ivri_od.procurement.report.stock_account_for_paddy.stock_account_for_paddy import (
 	dcro_kms_year,
 	kms_year_label,
 	parse_portal_date,
-	season_master_year,
 )
 
 SECTION = "View DC"
 KMS_COLUMN = "KMS (Year)"
 DISTRICT_COLUMN = "District"
+SEASON_COLUMN = "Season"
 DATE_COLUMN = "Generated Date"
 # (column, words of the detail header to add up, fieldtype): the number of lots read by the agent.
 LOT_TOTALS = [("Lots", ["lots"], "Int")]
@@ -56,26 +57,22 @@ def execute(filters=None):
 
 
 def dc_filter(filters):
-	"""Keep the DCs of the KMS Year and District generated from From Month to To Month."""
-	year = int(season_master_year(filters.kms_year)) if filters.kms_year else None
-	district = (filters.district or "").strip().lower()
+	"""Keep the DCs of the KMS Year, Season (Both / Kharif / Rabi) and District (shared DCRO
+	filters, dcro_filters.py) generated from From Month to To Month."""
 	from_date = getdate(get_first_day(filters.from_month)) if filters.from_month else None
 	to_date = getdate(get_last_day(filters.to_month)) if filters.to_month else None
 	if from_date and to_date and from_date > to_date:
 		frappe.throw(_("From Month must be before To Month"))
 
-	def keep(record, cells):
-		if year and dcro_kms_year(cells.get(KMS_COLUMN)) != year:
-			return False
-		if district and (cells.get(DISTRICT_COLUMN) or "").strip().lower() != district:
-			return False
-		if from_date or to_date:
-			generated = parse_portal_date(cells.get(DATE_COLUMN))
-			if not generated or (from_date and generated < from_date) or (to_date and generated > to_date):
-				return False
-		return True
+	def in_months(record, cells):
+		if not (from_date or to_date):
+			return True
+		generated = parse_portal_date(cells.get(DATE_COLUMN))
+		return bool(generated) and not (from_date and generated < from_date) and not (to_date and generated > to_date)
 
-	return keep
+	return dcro_filters.row_filter(
+		filters, KMS_COLUMN, SEASON_COLUMN, dcro_filters.district_column(DISTRICT_COLUMN), extra=in_months
+	)
 
 
 @frappe.whitelist()

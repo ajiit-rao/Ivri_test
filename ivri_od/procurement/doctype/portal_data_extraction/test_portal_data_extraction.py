@@ -930,7 +930,7 @@ class IntegrationTestDcroReports(IntegrationTestCase):
 		with patch.dict(portal_sync.NET_WEIGHT_SECTIONS, sections):
 			result = import_rows(self.extraction.name, started["run"], json.dumps(rows))
 			self.assertEqual(result["inserted"], 2, result["errors"])
-			self.assertEqual(weights(), [("DC-21", "289.73600"), ("DC-22", "287.50000")])
+			self.assertEqual(weights(), [("DC-21", "289.73600"), ("DC-22", "0.00000")])
 			dates = {
 				json.loads(r)["DC No"]: json.loads(r)["Accepted Date"]
 				for r in frappe.get_all("Portal Record", filters={"site": self.SITE, "section": started["section"]}, pluck="row_data")
@@ -940,16 +940,16 @@ class IntegrationTestDcroReports(IntegrationTestCase):
 				json.loads(r)["DC No"]: (json.loads(r)["Acceptance Note No"], json.loads(r)["Weight After Moisture Cut"])
 				for r in frappe.get_all("Portal Record", filters={"site": self.SITE, "section": started["section"]}, pluck="row_data")
 			}
-			# No AC Note: no Acceptance Note No; both weights are the master's Net Quantity.
-			self.assertEqual(ac_values, {"DC-21": ("208", "287.41811"), "DC-22": ("", "287.50000")})
+			# No AC Note: no Acceptance Note No; both weights are 0 (no assumed weight).
+			self.assertEqual(ac_values, {"DC-21": ("208", "287.41811"), "DC-22": ("", "0.00000")})
 
 			# Read again without the file: the saved AC Note is read; no new record.
 			result = import_rows(self.extraction.name, started["run"], json.dumps([{"cells": rows[0]["cells"]}]))
 			self.assertEqual(result["unchanged"], 1, result)
-			# The master's Net Quantity is used when there is no AC Note.
+			# The master's Net Quantity is never used: a row without an AC Note stays 0.
 			frappe.db.set_single_value(portal_sync.NET_WEIGHT_MASTER, "net_quantity", 290)
 			import_rows(self.extraction.name, started["run"], json.dumps([{"cells": rows[1]["cells"]}]))
-			self.assertEqual(weights(), [("DC-21", "289.73600"), ("DC-22", "290.00000")])
+			self.assertEqual(weights(), [("DC-21", "289.73600"), ("DC-22", "0.00000")])
 
 			name = frappe.get_all("Portal Record", filters={"site": self.SITE, "section": started["section"]}, pluck="name")
 			cells = json.loads(frappe.db.get_value("Portal Record", name[0], "row_data"))
@@ -1028,11 +1028,11 @@ class IntegrationTestDcroReports(IntegrationTestCase):
 			)
 			self.assertEqual(values("DC-32"), ("11-05-2026", "289.73600"))
 
-			# Cleared: no date, the master's Net Quantity.
+			# Cleared: no date, Net Weight back to 0.
 			record = record_of("DC-31")
 			frappe.db.set_value("Portal Record", record, "documents", "{}")
 			set_values(record, "2026-05-21", 289)
-			self.assertEqual(set_values(record, "", 0), {"Net Weight": "287.50000", "Accepted Date": ""})
+			self.assertEqual(set_values(record, "", 0), {"Net Weight": "0.00000", "Accepted Date": ""})
 			self.assertFalse(frappe.db.get_value("Portal Record", record, "accepted_date_manual"))
 			self.assertFalse(frappe.db.get_value("Portal Record", record, "net_weight_manual"))
 

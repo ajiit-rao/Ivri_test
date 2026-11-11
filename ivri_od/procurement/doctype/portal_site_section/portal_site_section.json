@@ -11,6 +11,7 @@
   "filter_columns",
   "extract_on_click",
   "extract_only_on_click",
+  "auto_click_before_read",
   "read_on_open",
   "read_new_only",
   "key_columns",
@@ -62,6 +63,12 @@
    "fieldtype": "Check",
    "label": "Only On These Clicks",
    "description": "Read this page only after the Extract On Click buttons or search box on this page (e.g. DCRO DC Transit Challan: type in the gvDCDetails_filter search box and press Enter). Other Search/Show/View-like clicks, such as the menu button or Show, do not start a read."
+  },
+  {
+   "fieldname": "auto_click_before_read",
+   "fieldtype": "Data",
+   "label": "Auto Click Before Read",
+   "description": "Elements the agent clicks by itself after Search/Show and before reading the table, comma separated: an XPath (e.g. //*[@id=\"dvmillerhistory\"]/a/i[1], the + that opens DCRO Requisition for DC) or #id. Clicked only when shown and when the Table Match table is not shown yet, so an open panel is never closed."
   },
   {
    "fieldname": "read_on_open",
@@ -122,7 +129,7 @@
  "index_web_pages_for_search": 0,
  "istable": 1,
  "links": [],
- "modified": "2026-10-27 15:00:00.000000",
+ "modified": "2026-11-05 13:00:00.000000",
  "modified_by": "Administrator",
  "module": "Procurement",
  "name": "Portal Site Section",

@@ -1,6 +1,7 @@
 # Copyright (c) 2026, Profezzo and contributors
 
 import json
+from unittest.mock import patch
 
 import frappe
 from frappe.tests import IntegrationTestCase
@@ -120,3 +121,72 @@ class TestDCTrack(IntegrationTestCase):
 		self.assertEqual((rrc["dc_type"], rrc["counted"], rrc["file_labels"]), ("RRC", 2, ["Acknowledgement"]))
 		self.assertEqual(rrc["lots"][0]["files"], [{"label": "Acknowledgement", "url": "/private/files/lot7.pdf"}])
 		self.assertEqual(rrc["lots"][1]["files"], [])
+
+
+class TestDCTrackDistrictKmsSeason(IntegrationTestCase):
+	def setUp(self):
+		records = {
+			("DCRO", "View DC"): [
+				{"DC Code(RRC)": "DCF910001", "District": "Balangir", "KMS Year": "2025-26", "Season": "KHARIF"},
+				{"DC Code(RRC)": "DCR910002", "District": "Koraput", "KMS Year": "2025-2026", "Season": "RABI"},
+				{"DC Code(RRC)": "DCR910003", "District": "No District Matched", "KMS Year": "2024-25", "Season": "Kharif"},
+			],
+			("DCRO", "DC Transit Challan"): [],
+			# The DC without a District in View DC takes its Lot Search row's District.
+			("SCMS", "Lot Search"): [{"DC No.": "DCR910003", "Lot No.": "1", "District": "BALANGIR"}],
+		}
+
+		def fake_records(site, section, like=None):
+			return [
+				frappe._dict(name=f"{section}-{n}", row_data=json.dumps(cells), mill_id="", receipt_file=None, documents=None)
+				for n, cells in enumerate(records.get((site, section), []))
+			]
+
+		patcher = patch.object(dc_track, "_records", side_effect=fake_records)
+		patcher.start()
+		self.addCleanup(patcher.stop)
+		patcher = patch.object(dc_track, "_get_details", return_value={})
+		patcher.start()
+		self.addCleanup(patcher.stop)
+
+	def dcs(self, **filters):
+		columns, data, *_rest = dc_track.execute(filters)
+		self.assertIn("district", [c["fieldname"] for c in columns])
+		return {row["dc_no"]: row["district"] for row in data}
+
+	def test_district_column_and_filter(self):
+		self.assertEqual(
+			self.dcs(), {"DCF910001": "Balangir", "DCR910002": "Koraput", "DCR910003": "BALANGIR"}
+		)
+		self.assertEqual(set(self.dcs(district="Balangir")), {"DCF910001", "DCR910003"})
+
+	def test_kms_year_filter(self):
+		self.assertEqual(set(self.dcs(kms_year="25-26")), {"DCF910001", "DCR910002"})
+		self.assertEqual(set(self.dcs(kms_year="24-25")), {"DCR910003"})
+
+	def test_season_filter(self):
+		self.assertEqual(len(self.dcs(season="Both")), 3)
+		self.assertEqual(set(self.dcs(season="Kharif")), {"DCF910001", "DCR910003"})
+		self.assertEqual(set(self.dcs(season="Rabi", kms_year="25-26")), {"DCR910002"})
+		self.assertRaises(frappe.ValidationError, dc_track.execute, {"season": "Summer"})
+
+	def test_depot_name_column(self):
+		records = {
+			("DCRO", "View DC"): [{"DC Code(RRC)": "DCR920001", "Depot Name": "RMC,Kantabanji"}],
+			("DCRO", "DC Transit Challan"): [{"DC Order No": "DCF920002", "Lot No.": "1", "Depot Name": "SWC KANTABHANJI"}],
+			("SCMS", "Lot Search"): [{"DC No.": "DCR920003", "Lot No.": "1", "Depot": "DC050201-Madhiapali, Bolangir"}],
+		}
+		with patch.object(
+			dc_track,
+			"_records",
+			side_effect=lambda site, section, like=None: [
+				frappe._dict(name=f"{section}-{n}", row_data=json.dumps(c), mill_id="", receipt_file=None, documents=None)
+				for n, c in enumerate(records.get((site, section), []))
+			],
+		):
+			columns, data, *_rest = dc_track.execute({})
+		self.assertIn("depot_name", [c["fieldname"] for c in columns])
+		depots = {row["dc_no"]: row["depot_name"] for row in data}
+		self.assertEqual(depots["DCR920001"], "RMC,Kantabanji")  # from the DC PDF (View DC)
+		self.assertEqual(depots["DCF920002"], "SWC KANTABHANJI")  # not in View DC: the challan's depot
+		self.assertEqual(depots["DCR920003"], "DC050201-Madhiapali, Bolangir")

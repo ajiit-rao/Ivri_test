@@ -19,7 +19,7 @@ frappe.query_reports["Joint Custody and Maintenance Charge Report"] = {
 	filters: [
 		{
 			fieldname: "mill",
-			label: __("Mill No"),
+			label: __("Miller Name"),
 			fieldtype: "Link",
 			options: "Mill Master",
 			reqd: 1,
@@ -47,39 +47,22 @@ frappe.query_reports["Joint Custody and Maintenance Charge Report"] = {
 			description: __("1 Nov to 31 Oct, e.g. 24-25 = 01-11-2024 to 31-10-2025"),
 		},
 		{
+			// No From / To Month: the months come from the season (Season Master Start - End Date,
+			// else the first to the last month with data).
+			fieldname: "season",
+			label: __("Season"),
+			fieldtype: "Select",
+			options: "Both\nKharif\nRabi",
+			default: "Both",
+			reqd: 1,
+			description: __("Both: Kharif and Rabi of the KMS Year. Months are shown automatically"),
+		},
+		{
 			fieldname: "district",
 			label: __("District"),
 			fieldtype: "Link",
 			options: "District Master",
 			reqd: 1,
-		},
-		{
-			// Calendar of months only (any year), as in Stock Account for Paddy and Rice Stock Report.
-			fieldname: "from_month",
-			label: __("From Month"),
-			fieldtype: "Date",
-			options: { view: "months", minView: "months" },
-			reqd: 1,
-			default: frappe.datetime.month_start(),
-		},
-		{
-			fieldname: "to_month",
-			label: __("To Month"),
-			fieldtype: "Date",
-			options: { view: "months", minView: "months" },
-			reqd: 1,
-			default: frappe.datetime.month_end(),
-			// The calendar gives the 1st of the month: show its last day, so the user sees the
-			// whole month is counted (e.g. 31-01-2027).
-			on_change: (report) => {
-				const value = report.get_filter_value("to_month");
-				const month_end = value && moment(value).endOf("month").format("YYYY-MM-DD");
-				if (month_end && value !== month_end) {
-					report.set_filter_value("to_month", month_end); // runs this again, then refreshes
-				} else {
-					report.refresh();
-				}
-			},
 		},
 		{
 			fieldname: "miller_name",

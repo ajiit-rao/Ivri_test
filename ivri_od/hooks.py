@@ -37,7 +37,7 @@ app_include_js = [
 	"/assets/ivri_od/js/report_column_width.js",
 	"/assets/ivri_od/js/report_print.js",
 	"/assets/ivri_od/js/report_edit.js",
-	"/assets/ivri_od/js/stock_register_filters.js",
+	"/assets/ivri_od/js/stock_register_filters.js?v=2",
 	"portal_detail_table.bundle.js",
 ]
 # app_include_css = "/assets/ivri_od/css/ivri_od.css"

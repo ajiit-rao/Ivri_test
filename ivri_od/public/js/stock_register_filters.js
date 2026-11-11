@@ -1,7 +1,8 @@
 // Copyright (c) 2026, Profezzo and contributors
 
 // Shared filters of the day-wise stock registers (Paddy Stock Register, Rice Stock Register):
-// Mill Name -> KMS Year ("25-26") -> Season (Kharif / Rabi) -> District -> From / To Date (+ hidden Company).
+// Mill Name -> KMS Year ("25-26") -> Season (Both / Kharif / Rabi) -> District (+ hidden Company).
+// No From / To Date: the days come from the season (Season Master Start - End Date, else the data).
 // Use: filters: ivri_od.stock_register.filters(), onload(report) { return ivri_od.stock_register.onload(report); }
 frappe.provide("ivri_od.stock_register");
 
@@ -62,10 +63,10 @@ frappe.provide("ivri_od.stock_register");
 				fieldname: "season",
 				label: __("Season"),
 				fieldtype: "Select",
-				options: "Kharif\nRabi",
-				default: "Kharif",
+				options: "Both\nKharif\nRabi",
+				default: "Both",
 				reqd: 1,
-				description: __("Prog. columns count from the season's Start Date in Season Master, if set"),
+				description: __("Both: Kharif and Rabi of the KMS Year. Days are shown automatically"),
 			},
 			{
 				fieldname: "district",
@@ -77,20 +78,6 @@ frappe.provide("ivri_od.stock_register");
 				description: district_optional
 					? __("District account (AC) printed in the heading; blank = all districts")
 					: __("District account (AC) printed in the heading; default: the mill's District"),
-			},
-			{
-				fieldname: "from_date",
-				label: __("From Date"),
-				fieldtype: "Date",
-				reqd: 1,
-				default: frappe.datetime.month_start(),
-			},
-			{
-				fieldname: "to_date",
-				label: __("To Date"),
-				fieldtype: "Date",
-				reqd: 1,
-				default: frappe.datetime.get_today(),
 			},
 			{
 				fieldname: "company",

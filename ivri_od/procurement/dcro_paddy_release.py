@@ -71,6 +71,49 @@ def _known_district(text: str, districts: dict[str, str]) -> str | None:
 	return None
 
 
+# Any header with "(Own District)" / "(Other District)NAME" (e.g. DCRO Requisition for DC).
+OWN_DISTRICT = re.compile(r"\(\s*own\s*district\s*\)", re.IGNORECASE)
+OTHER_DISTRICT = re.compile(r"\(\s*other\s*district\s*\)\s*([A-Za-z]+)(?:\s+([A-Za-z]+))?", re.IGNORECASE)
+
+
+def district_named_header(header: str, own_district: str | None, districts: dict[str, str]) -> str:
+	"""The header with its district named as in Paddy Release: "(Own District)" -> the mill's
+	District ("Qty (Own District) (in Qtl)" -> "Qty Balangir (in Qtl)"); "(Other District)KORAPUT"
+	-> "Koraput" when it is a District Master name (one or two words, e.g. "NABARANGPUR",
+	"SONEPUR TOWN"). Left as it is when the district is not known."""
+	text = header or ""
+	if own_district:
+		text = OWN_DISTRICT.sub(f" {own_district} ", text)
+	match = OTHER_DISTRICT.search(text)
+	if match:
+		first, second = match.group(1), match.group(2)
+		two_words = f"{first} {second}" if second else ""
+		if two_words and two_words.casefold() in districts:
+			text = text[: match.start()] + f" {districts[two_words.casefold()]} " + text[match.end() :]
+		elif first.casefold() in districts:
+			text = text[: match.start()] + f" {districts[first.casefold()]} " + text[match.end(1) :]
+	return " ".join(text.split()) or header
+
+
+def district_named_cells(records, cells_by_record: dict) -> dict:
+	"""Report cells with "(Own District)" / "(Other District)NAME" headers named by district
+	(district_named_header); the mill's own District from Mill Master."""
+	if not records:
+		return cells_by_record
+	districts, mills = district_names(), mill_districts()
+	out = {}
+	for record in records:
+		own = mills.get(record.mill_id or "")
+		cells = {}
+		for header, value in cells_by_record[record.name].items():
+			name = district_named_header(header, own, districts)
+			while name in cells and name != header:  # two headers named alike: keep both
+				name += " "
+			cells[name] = value
+		out[record.name] = cells
+	return out
+
+
 def released_by_district(cells: dict, own_district: str | None, districts: dict[str, str]) -> dict[str, float]:
 	"""{district label: Paddy Released} of one row (0 for a rejected or cancelled order)."""
 	out = defaultdict(float)

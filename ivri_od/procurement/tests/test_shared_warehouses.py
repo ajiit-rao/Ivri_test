@@ -389,6 +389,30 @@ class TestWarehouseRules(posting_base.StockPostingTestCase):
 	def test_a_warehouse_with_neither_unit_nor_location_is_left_alone(self):
 		sp.validate_warehouse(frappe._dict(name="Stores - SSPP", company=SSPP, operating_unit=None, physical_location=None, is_group=0))
 
+	def new_doc(self, new=True, ignore_mandatory=False, **values):
+		"""A Warehouse being saved: frappe._dict values plus is_new() and flags, as a real Document has."""
+		doc = frappe._dict(name="NEW GODOWN - SSPP", company=SSPP, operating_unit=None, physical_location=None, is_group=0)
+		doc.update(values)
+		doc.is_new = lambda: new
+		doc.flags = frappe._dict(ignore_mandatory=ignore_mandatory)
+		return doc
+
+	def test_a_new_warehouse_without_location_is_refused(self):
+		with patch.object(frappe, "flags", frappe._dict(), create=True), self.assertRaises(frappe.ValidationError):
+			sp.validate_warehouse(self.new_doc())
+
+	def test_location_rule_skips_groups_existing_and_erpnext_defaults(self):
+		with patch.object(frappe, "flags", frappe._dict(), create=True):
+			sp.validate_warehouse(self.new_doc(is_group=1))  # a group only holds other warehouses
+			sp.validate_warehouse(self.new_doc(new=False))  # older warehouses are left alone
+			sp.validate_warehouse(self.new_doc(ignore_mandatory=True))  # ERPNext Company defaults
+		with patch.object(frappe, "flags", frappe._dict(in_install=True), create=True):
+			sp.validate_warehouse(self.new_doc())
+
+	def test_a_new_warehouse_with_location_is_accepted(self):
+		with patch.object(frappe, "flags", frappe._dict(), create=True):
+			sp.validate_warehouse(self.new_doc(physical_location="SSPP GODOWN"))
+
 	def test_the_location_must_belong_to_the_warehouse_company(self):
 		with self.assertRaises(frappe.ValidationError):
 			sp.validate_warehouse(frappe._dict(self.doc(), company="Radhe Govind Food Products"))

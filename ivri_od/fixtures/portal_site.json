@@ -52,11 +52,26 @@
     "key_columns": "DC Order No, Lot No.",
     "enabled": 1,
     "read_new_only": 1
+   },
+   {
+    "doctype": "Portal Site Section",
+    "parentfield": "sections",
+    "parenttype": "Portal Site",
+    "parent": "DCRO",
+    "section_name": "Requisition for DC",
+    "page_match": "MillerRqPDS",
+    "table_match": "tabledata",
+    "extract_on_click": "Show",
+    "extract_only_on_click": 1,
+    "auto_click_before_read": "//*[@id=\"dvmillerhistory\"]/a/i[1]",
+    "filter_columns": "KMS Year = #INTKMS\nSeason = #ddlseason",
+    "enabled": 1,
+    "read_new_only": 1
    }
   ],
   "mill_id_labels": "Mill ID, Mill Code, Miller Code, Miller ID",
   "mill_id_xpath": "",
-  "login_user_id": ""
+  "login_user_id": "UserName"
  },
  {
   "doctype": "Portal Site",
@@ -174,7 +189,7 @@
   ],
   "mill_id_labels": "Mill ID, Mill Code, Miller Code, Miller ID",
   "mill_id_xpath": "",
-  "login_user_id": ""
+  "login_user_id": "txtUserId"
  },
  {
   "doctype": "Portal Site",
