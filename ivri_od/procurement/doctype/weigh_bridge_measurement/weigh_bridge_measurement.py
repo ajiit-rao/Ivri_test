@@ -10,6 +10,7 @@ from ivri_od.procurement.datetime_fields import ensure_doc_datetime
 
 from ivri_od.procurement.bag_balance import get_weigh_bridge_bags_for_tp
 from ivri_od.procurement.grn_tp_fulfillment import refresh_tp_fulfillment_for_pass
+from ivri_od.procurement.other_tp import validate_other_tps
 from ivri_od.procurement.doctype.rst_details.rst_details import (
 	get_rst_agent_name,
 	is_private_procurement_rst,
@@ -321,6 +322,8 @@ class WeighBridgeMeasurement(Document):
 		self._validate_farmer_or_agent_source()
 		self._normalize_truck_numbers()
 		self._sync_actual_truck()
+		# Last: needs the final Net Weight and TP No.
+		validate_other_tps(self)
 
 	def _sync_and_validate_weighment(self):
 		self._sync_gate_entry_link()

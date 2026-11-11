@@ -21,6 +21,10 @@ class MandiBookTPSplit(Document):
 		from ivri_od.procurement.report.mandi_book.mandi_book import rst_net_qty
 
 		self.net_qty = rst_net_qty(self.grn_note)
+		if flt(frappe.db.get_value("GRN Note", self.grn_note, "other_tp_qty")):
+			frappe.throw(
+				_("This RST already has Other TPs on its weighment. Remove them there before splitting it here.")
+			)
 		keys = [(row.pass_unique_key or "").strip() for row in self.tp_rows]
 		if not keys:
 			frappe.throw(_("Add at least one TP No with its Qty."))

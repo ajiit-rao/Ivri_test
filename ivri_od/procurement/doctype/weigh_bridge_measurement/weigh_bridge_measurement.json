@@ -45,6 +45,9 @@
   "gunny_weight",
   "deduction",
   "net_weight",
+  "other_tp_section",
+  "other_tp_details",
+  "other_tp_qty",
   "section_break_rnxd",
   "bag_weight_details"
  ],
@@ -340,6 +343,29 @@
    "read_only": 1
   },
   {
+   "collapsible": 1,
+   "collapsible_depends_on": "eval:doc.other_tp_qty",
+   "description": "Fill only when this truck also carried paddy of other Transit Passes. Their Qty is taken out of the GRN Net Weight of this TP.",
+   "fieldname": "other_tp_section",
+   "fieldtype": "Section Break",
+   "label": "Other TPs in this RST"
+  },
+  {
+   "fieldname": "other_tp_details",
+   "fieldtype": "Table",
+   "label": "Other TPs",
+   "options": "Weighment Other TP"
+  },
+  {
+   "description": "Total Qty of the other TPs above.",
+   "fieldname": "other_tp_qty",
+   "fieldtype": "Float",
+   "label": "Other TP Qty (QT)",
+   "non_negative": 1,
+   "precision": "3",
+   "read_only": 1
+  },
+  {
    "fieldname": "section_break_rnxd",
    "fieldtype": "Section Break"
   },
@@ -387,7 +413,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-05 15:00:00.000000",
+ "modified": "2026-11-11 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Procurement",
  "name": "Weigh Bridge Measurement",

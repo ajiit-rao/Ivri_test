@@ -59,8 +59,12 @@
   "gross_weight",
   "gunny_weight",
   "deduction",
+  "rst_net_weight",
+  "other_tp_qty",
   "net_weight",
   "weigh_bridge_measurement",
+  "other_tp_section",
+  "other_tp_details",
   "quality_section",
   "quality_check",
   "qc_sample_no",
@@ -458,6 +462,26 @@
    "read_only": 1
   },
   {
+   "depends_on": "eval:doc.other_tp_qty",
+   "description": "Net Weight of the whole truck from the weighment.",
+   "fieldname": "rst_net_weight",
+   "fieldtype": "Float",
+   "label": "RST Net Weight (QT)",
+   "non_negative": 1,
+   "precision": "3",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.other_tp_qty",
+   "description": "Taken out: paddy of other TPs in the same truck.",
+   "fieldname": "other_tp_qty",
+   "fieldtype": "Float",
+   "label": "Other TP Qty (QT)",
+   "non_negative": 1,
+   "precision": "3",
+   "read_only": 1
+  },
+  {
    "fieldname": "net_weight",
    "fieldtype": "Float",
    "in_list_view": 1,
@@ -472,6 +496,19 @@
    "hidden": 1,
    "label": "Weigh Bridge Measurement",
    "options": "Weigh Bridge Measurement",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.other_tp_qty",
+   "fieldname": "other_tp_section",
+   "fieldtype": "Section Break",
+   "label": "Other TPs in this RST"
+  },
+  {
+   "fieldname": "other_tp_details",
+   "fieldtype": "Table",
+   "label": "Other TPs in this RST",
+   "options": "Weighment Other TP",
    "read_only": 1
   },
   {
@@ -702,7 +739,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-05 16:00:00.000000",
+ "modified": "2026-11-11 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Procurement",
  "name": "GRN Note",

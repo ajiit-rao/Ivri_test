@@ -17,6 +17,7 @@ from ivri_od.procurement.doctype.weigh_bridge_measurement.weigh_bridge_measureme
 from ivri_od.procurement.doctype.season_mapping.season_mapping import get_chhatni_from_season_mapping
 from ivri_od.procurement.doctype.season_master.season_master import resolve_season_master_name
 from ivri_od.procurement.mill_gate import get_qc_sl_no, normalize_vehicle_no
+from ivri_od.procurement.other_tp import apply_other_tps_to_grn
 from ivri_od.procurement.grn_tp_fulfillment import (
 	chhatni_fulfillment_status,
 	clear_tp_fulfillment_fields,
@@ -480,6 +481,8 @@ class GRNNote(Document):
 		self.gross_weight = flt(wbm.gross_weight)
 		self.tare_weight = flt(wbm.tare_weight)
 		self.net_weight = flt(wbm.net_weight)
+		# Other TPs in the same truck: their Qty is not this TP's (see procurement/other_tp.py).
+		apply_other_tps_to_grn(self, wbm_name, wbm.net_weight)
 		self.deduction = flt(wbm.deduction)
 		self.gunny_type = wbm.gunny_type or ""
 		self.gunny_weight = flt(wbm.gunny_weight)
