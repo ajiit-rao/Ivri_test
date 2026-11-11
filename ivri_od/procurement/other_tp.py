@@ -320,6 +320,32 @@ def _grn_for_wbm(wbm_name: str) -> str | None:
 # ------------------------------------------------------------------ Mandi Book dialog
 
 
+def _all_tps(wbm) -> list[dict]:
+	"""Every TP of the truck's RST: its own TP first, then the other TPs, with names and quantities."""
+	gross = flt(wbm.gross_weight, 3)
+	own = {
+		"season": tp_season(wbm.pass_unique_key),
+		"transit_pass_no": (wbm.transit_pass_no or "").strip(),
+		"ppc_name": resolve_ppc_master_name(wbm.pacs_name) or None,
+		"mill_no": resolve_mill_master_name(wbm.pass_unique_key, None) or None,
+		"qty": flt(wbm.get("tp_qty"), 3) or flt(max(gross - flt(wbm.other_tp_qty), 0.0), 3),
+		"weighment": wbm.name,
+		"is_own": 1,
+	}
+	rows = [own] + [{field: row.get(field) for field in ROW_FIELDS} for row in wbm.get("other_tp_details") or []]
+	for row in rows:
+		w = frappe.db.get_value(WBM, row.get("weighment"), ["net_weight", "deduction"], as_dict=True) if row.get("weighment") else None
+		row["net_weight"] = flt(w.net_weight, 3) if w else None
+		row["deduction"] = flt(w.deduction, 3) if w else None
+		row["grn"] = _grn_for_wbm(row["weighment"]) if row.get("weighment") else None
+		ppc = row.get("ppc_name")
+		row["ppc_label"] = (frappe.db.get_value("PPC Master", ppc, "ppc_name") if ppc else None) or ppc or ""
+		mill = row.get("mill_no")
+		m = frappe.db.get_value("Mill Master", mill, ["display_name", "company", "short_name"], as_dict=True) if mill else None
+		row["mill_label"] = ((m.display_name or m.company or m.short_name) if m else None) or mill or ""
+	return rows
+
+
 @frappe.whitelist()
 def get_other_tps(wbm_name: str) -> dict:
 	"""Mandi Book dialog (click the RST No): the truck's weighment, its RST Net Weight and Other TPs."""
@@ -333,7 +359,9 @@ def get_other_tps(wbm_name: str) -> dict:
 		"transit_pass_no": (wbm.transit_pass_no or "").strip(),
 		"season": tp_season(wbm.pass_unique_key),
 		"net_weight": flt(wbm.rst_net_weight, 3) or flt(wbm.net_weight, 3),
+		"gross_weight": flt(wbm.gross_weight, 3),
 		"rows": [{field: row.get(field) for field in ROW_FIELDS} for row in wbm.get("other_tp_details") or []],
+		"all_tps": _all_tps(wbm),
 	}
 
 
