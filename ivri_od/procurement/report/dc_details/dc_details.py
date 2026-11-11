@@ -41,11 +41,13 @@ import math
 import re
 
 import frappe
+
 from frappe import _
 from frappe.utils import flt
 
 from ivri_od.procurement.dcro_paddy_release import _known_district, district_names, mill_districts
 from ivri_od.procurement.doctype.season_master.season_master import resolve_season_master_name
+from ivri_od.procurement.mill_names import mill_short_name
 from ivri_od.procurement.portal_report import _key
 from ivri_od.procurement.portal_sync import DISTRICT_COLUMN, NO_DISTRICT, NOISE_HEADER, _match_key
 from ivri_od.procurement.report.dc_track.dc_track import (
@@ -376,7 +378,7 @@ def _line(mill, rate, paddy_received, lots) -> dict:
 	total_issued = fci_issue + rrc_issue
 	return {
 		"mill": mill.name,
-		"mill_name": mill.company,
+		"mill_name": mill_short_name(mill.name) or mill.company,
 		"mill_type": mill.type,
 		"paddy_received": flt(paddy_received, 2),
 		"driage": driage,
