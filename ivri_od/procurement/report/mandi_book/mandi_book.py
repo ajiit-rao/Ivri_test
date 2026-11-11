@@ -495,6 +495,9 @@ def _weigh_bridges_for(grns) -> dict[str, dict]:
 			"gunny_weight",
 			"no_of_bags",
 			"total_bags",
+			"rst_net_weight",
+			"split_from_weighment",
+			"split_qty",
 		],
 	)
 	return {row.name: row for row in rows}
@@ -590,16 +593,23 @@ def _rst_lines(docs, wbm_by_name: dict, bags_by_wbm: dict) -> list[dict]:
 		split_qty = doc.get("split_qty")
 		other_tp_qty = flt(doc.get("other_tp_qty"), 3) if split_qty is None else 0.0
 		own_qty = split_qty
-		if other_tp_qty > 0 and (gross_wt - gunny_weight - deduction) - flt(net_wt) > 0.001:
-			# The truck's own weighment holds the whole truck's weights; this TP keeps its Net Weight.
-			# (A split weighment of another TP already has its share of the weights.)
+		share_qty = None
+		base_qty = gross_wt - gunny_weight - deduction
+		if other_tp_qty > 0 and base_qty - flt(net_wt) > 0.001:
+			# Every weighment of a truck with other TPs holds the whole truck's weights; this TP keeps its
+			# Net Weight. Its share of the truck: the truck's own TP its Net Weight, a split TP its Qty
+			# (its own Deduction then shows in the line's Deduction).
 			own_qty = max(flt(net_wt), 0.0)
+			if wbm.get("split_from_weighment") and flt(wbm.get("split_qty")) > 0:
+				share_qty = flt(wbm.get("split_qty"), 3)
+			if flt(wbm.get("rst_net_weight")) > 0:
+				base_qty = flt(wbm.get("rst_net_weight"), 3)
 		ratio = 1
 		if own_qty is not None:
-			# This RST is shared by several TP Nos: this TP gets its Qty, and gross, gunny, deduction and
-			# bags in the same proportion, so that gross - gunny - deduction is exactly its Qty.
-			base_qty = gross_wt - gunny_weight - deduction
-			ratio = flt(own_qty) / base_qty if base_qty > 0 else 0.0
+			# This RST is shared by several TP Nos: gross, gunny and bags in proportion to this TP's share,
+			# deduction so that gross - gunny - deduction is exactly its Net Weight.
+			share = own_qty if share_qty is None else share_qty
+			ratio = flt(share) / base_qty if base_qty > 0 else 0.0
 			load_wt, tare_wt = flt(load_wt * ratio, 3), flt(tare_wt * ratio, 3)
 			gross_wt, gunny_weight = flt(gross_wt * ratio, 3), flt(gunny_weight * ratio, 3)
 			deduction = flt(gross_wt - gunny_weight - flt(own_qty), 3)

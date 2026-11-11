@@ -4,7 +4,8 @@
 """Other TPs in one RST: weighment weights and checks, split weighment weights, GRN and the Mandi Book line.
 
 Example used: RST 1201 weighs 250 QT net under TP 46 and also carries 80 QT of TP 51.
-Truck weighment Net 170 (RST Net 250); split weighment of TP 51 Net 80.
+Truck weighment Net 170 (RST Net 250); split weighment of TP 51: the truck's Load and Tare, Net 80 less
+its own Deduction.
 """
 
 import unittest
@@ -98,31 +99,44 @@ class TestTruckWeighment(unittest.TestCase):
 			_validate(_wbm([{"transit_pass_no": "51", "qty": 10}], key=""))
 
 
+TRUCK = frappe._dict(
+	load_weight=400, tare_weight=140, gross_weight=260, gunny_weight=5, deduction=5, net_weight=170,
+	rst_net_weight=250, total_bags=500, no_of_bags=500, quality_test="Accepted",
+)
+
+
+def _split(deduction=None, truck=TRUCK):
+	child = frappe.new_doc("Weigh Bridge Measurement")
+	child.split_from_weighment = "WBM-TRUCK"
+	child.split_qty = 80
+	child.deduction = deduction
+	with patch(f"{OTHER_TP}.frappe.db.get_value", return_value=truck):
+		other_tp._copy_split_weights(child)
+	return child
+
+
 class TestSplitWeighment(unittest.TestCase):
-	def test_weights_in_proportion_and_net_is_its_qty(self):
-		truck = frappe._dict(
-			load_weight=400, tare_weight=140, gross_weight=260, gunny_weight=5, deduction=5, net_weight=170,
-			rst_net_weight=250, total_bags=500, no_of_bags=500, quality_test="Accepted",
-		)
-		child = frappe.new_doc("Weigh Bridge Measurement")
-		child.split_from_weighment = "WBM-TRUCK"
-		child.split_qty = 80
-		with patch(f"{OTHER_TP}.frappe.db.get_value", return_value=truck):
-			other_tp._copy_split_weights(child)
-		self.assertEqual(flt(child.net_weight, 3), 80)
+	def test_truck_load_and_tare_and_net_is_its_qty(self):
+		child = _split()
+		self.assertEqual(flt(child.load_weight, 3), 400)
+		self.assertEqual(flt(child.tare_weight, 3), 140)
+		self.assertEqual(flt(child.gross_weight, 3), 260)
 		self.assertEqual(flt(child.rst_net_weight, 3), 250)
-		self.assertEqual(flt(child.gross_weight, 3), 83.2)  # 260 x 80/250
-		self.assertAlmostEqual(child.gross_weight - child.gunny_weight - child.deduction, 80, places=3)
-		self.assertEqual(child.total_bags, 160)
+		self.assertEqual(flt(child.deduction, 3), 0)  # not the truck's 5
+		self.assertEqual(flt(child.net_weight, 3), 80)
+		self.assertEqual(child.total_bags, 500)
+
+	def test_own_deduction_lowers_its_net(self):
+		self.assertEqual(flt(_split(deduction=2).net_weight, 3), 78)
+
+	def test_deduction_must_be_less_than_qty(self):
+		with self.assertRaises(frappe.ValidationError):
+			_split(deduction=80)
+		with self.assertRaises(frappe.ValidationError):
+			_split(deduction=-1)
 
 	def test_rejected_truck_gives_zero(self):
-		truck = frappe._dict(gross_weight=260, gunny_weight=5, deduction=5, rst_net_weight=250, quality_test="Rejected")
-		child = frappe.new_doc("Weigh Bridge Measurement")
-		child.split_from_weighment = "WBM-TRUCK"
-		child.split_qty = 80
-		with patch(f"{OTHER_TP}.frappe.db.get_value", return_value=truck):
-			other_tp._copy_split_weights(child)
-		self.assertEqual(flt(child.net_weight), 0)
+		self.assertEqual(flt(_split(truck=frappe._dict(TRUCK, quality_test="Rejected")).net_weight), 0)
 
 	def test_split_weighment_cannot_have_other_tps(self):
 		doc = _wbm([{"transit_pass_no": "52", "qty": 5}])
@@ -132,24 +146,31 @@ class TestSplitWeighment(unittest.TestCase):
 
 
 class TestMandiBookLine(unittest.TestCase):
-	def _line(self, gross, gunny, deduction, net, other_tp_qty):
+	def _line(self, gross, gunny, deduction, net, other_tp_qty, wbm=None):
 		doc = frappe._dict(
-			name="GRN-1", grn_no="GRN-1", rst_no="1201", weigh_bridge_measurement="", vehicle_no="CG04AB1234",
-			gross_vehicle_weight=gross + 140, tare_weight=140, gross_weight=gross, gunny_weight=gunny,
-			deduction=deduction, net_weight=net, gunny_type="Gunny Gross", other_tp_qty=other_tp_qty,
+			name="GRN-1", grn_no="GRN-1", rst_no="1201", weigh_bridge_measurement="WBM-1" if wbm else "",
+			vehicle_no="CG04AB1234", gross_vehicle_weight=gross + 140, tare_weight=140, gross_weight=gross,
+			gunny_weight=gunny, deduction=deduction, net_weight=net, gunny_type="Gunny Gross",
+			other_tp_qty=other_tp_qty,
 		)
-		return mandi_book._rst_lines([doc], {}, {})[0]
+		wbms = {"WBM-1": frappe._dict(wbm, name="WBM-1")} if wbm else {}
+		return mandi_book._rst_lines([doc], wbms, {})[0]
 
 	def test_truck_grn_counts_only_its_share(self):
 		line = self._line(260, 5, 5, 170, 80)
 		self.assertAlmostEqual(line["gross_weight"] - line["gunny_weight"] - line["deduction"], 170, places=3)
 		self.assertEqual(flt(line["net_weight"], 3), 170)
 
-	def test_split_grn_is_not_scaled_again(self):
-		# Split weighment of 80 QT already has its share: 83.2 - 1.6 - 1.6 = 80.
-		line = self._line(83.2, 1.6, 1.6, 80, 170)
-		self.assertEqual(flt(line["gross_weight"], 3), 83.2)
-		self.assertAlmostEqual(line["gross_weight"] - line["gunny_weight"] - line["deduction"], 80, places=3)
+	def test_split_grn_gets_its_share_of_the_truck(self):
+		# Split weighment of 80 QT with its own Deduction 2: the truck's weights, Net 78.
+		wbm = dict(
+			load_weight=400, tare_weight=140, gross_weight=260, gunny_weight=5, deduction=2, net_weight=78,
+			rst_net_weight=250, split_from_weighment="WBM-TRUCK", split_qty=80,
+		)
+		line = self._line(260, 5, 2, 78, 170, wbm=wbm)
+		self.assertEqual(flt(line["gross_weight"], 3), 83.2)  # 260 x 80/250
+		self.assertEqual(flt(line["net_weight"], 3), 78)
+		self.assertAlmostEqual(line["gross_weight"] - line["gunny_weight"] - line["deduction"], 78, places=3)
 
 	def test_line_unchanged_without_other_tps(self):
 		line = self._line(260, 5, 5, 250, 0)

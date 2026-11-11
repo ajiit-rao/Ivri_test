@@ -8,9 +8,9 @@ Measurement, in the form or from the Mandi Book (Edit, click the RST No). On sav
 
 - this weighment keeps the truck's weights; RST Net Weight is the whole truck, Net Weight is this TP's share;
 - each other TP gets its own weighment ("Split from Weighment" = this one) with the same RST No, Quality
-  Check, gate entry and vehicle, its weights in proportion and Net Weight = its Qty; its GRN Note is made
-  the usual way;
-- every GRN of the truck shows the other TPs of the truck in its own "Other TPs" table.
+  Check, gate entry and vehicle, and the truck's Load and Tare Weight. Its Deduction starts at 0 and can be
+  changed on that weighment; its Net Weight = its Qty less that Deduction. Its GRN Note is made the usual way;
+- every weighment and GRN of the truck shows the other TPs of the truck in its own "Other TPs" table.
 
 Example: RST 1201 weighs 250 QT net under TP 46 and carries 80 QT of TP 51.
 Weighment TP 46: Net 170 (RST Net 250); new weighment TP 51: Net 80. GRN TP 46 = 170, GRN TP 51 = 80.
@@ -53,7 +53,7 @@ def adjust_weights_for_other_tps(wbm) -> None:
 	"""End of Weigh Bridge Measurement._update_weights (every save and every Quality Check re-sync).
 
 	Truck weighment: RST Net Weight = whole truck, Net Weight = that less the other TPs.
-	Split weighment: its weights follow the truck's weighment, in proportion to its Qty.
+	Split weighment: the truck's weights; Net Weight = its Qty less its own Deduction.
 	"""
 	if (wbm.get("split_from_weighment") or "").strip():
 		_copy_split_weights(wbm)
@@ -65,10 +65,14 @@ def adjust_weights_for_other_tps(wbm) -> None:
 
 
 def _copy_split_weights(child) -> None:
+	"""Split weighment: Load, Tare, Gross, Gunny and bags are the truck's (the real weighbridge readings).
+
+	Deduction is this TP's own (0 by default, entered on the split weighment); Net Weight = Qty - Deduction.
+	"""
 	parent = frappe.db.get_value(
 		WBM,
 		child.split_from_weighment,
-		["load_weight", "tare_weight", "gross_weight", "gunny_weight", "deduction", "net_weight", "rst_net_weight",
+		["load_weight", "tare_weight", "gross_weight", "gunny_weight", "deduction", "rst_net_weight",
 		 "total_bags", "no_of_bags", "quality_test"],
 		as_dict=True,
 	)
@@ -78,18 +82,20 @@ def _copy_split_weights(child) -> None:
 		flt(parent.gross_weight) - flt(parent.gunny_weight) - flt(parent.deduction), 3
 	)
 	qty = flt(child.split_qty, 3)
-	ratio = qty / rst_net if rst_net > 0 else 0.0
 	child.rst_net_weight = flt(rst_net, 3)
-	child.other_tp_qty = 0
-	child.load_weight = flt(flt(parent.load_weight) * ratio, 3)
-	child.tare_weight = flt(flt(parent.tare_weight) * ratio, 3)
-	child.gross_weight = flt(flt(parent.gross_weight) * ratio, 3)
-	child.gunny_weight = flt(flt(parent.gunny_weight) * ratio, 3)
-	# Deduction makes gross - gunny - deduction exactly the Qty (no rounding left over).
-	child.deduction = flt(child.gross_weight - child.gunny_weight - qty, 3)
-	child.net_weight = 0 if (parent.quality_test or "") == "Rejected" else qty
-	child.total_bags = int(round(cint(parent.total_bags) * ratio))
-	child.no_of_bags = int(round(cint(parent.no_of_bags) * ratio))
+	for field in ("load_weight", "tare_weight", "gross_weight", "gunny_weight"):
+		child.set(field, flt(parent.get(field), 3))
+	child.total_bags = cint(parent.total_bags)
+	child.no_of_bags = cint(parent.no_of_bags)
+	deduction = flt(child.deduction, 3)
+	if deduction < 0:
+		frappe.throw(_("Deduction cannot be less than 0."))
+	if qty > 0 and deduction >= qty:
+		frappe.throw(
+			_("Deduction ({0} QT) must be less than the Qty of this TP ({1} QT).").format(deduction, qty)
+		)
+	child.deduction = deduction
+	child.net_weight = 0 if (parent.quality_test or "") == "Rejected" else flt(qty - deduction, 3)
 
 
 # ------------------------------------------------------------------ validate
@@ -104,7 +110,6 @@ def validate_split_weighment(child) -> None:
 		child.set(field, parent.get(field))
 	child.is_farmer_or_agent = 0
 	child.tp_status = SPLIT_TP_STATUS
-	child.set("other_tp_details", [])
 	child._validate_pass_unique_key()  # TP No, PPC, TP Weight, Truck No in TP of its own TP
 	# Same truck as the truck's weighment, whatever the other TP says.
 	from ivri_od.procurement.doctype.weigh_bridge_measurement.weigh_bridge_measurement import get_effective_truck_no
@@ -113,6 +118,10 @@ def validate_split_weighment(child) -> None:
 	child.same_truck_as_transit_pass = 1 if truck and truck != (child.truck_no_in_tp or "") else 0
 	child.actual_truck_no = truck
 	_copy_split_weights(child)
+	# Its "Other TPs": the truck's own TP and the other split TPs of the same RST.
+	rows = truck_other_tps(child.name, child.split_from_weighment, child.pass_unique_key)
+	child.set("other_tp_details", [{field: row.get(field) for field in ROW_FIELDS} for row in rows])
+	child.other_tp_qty = other_tp_total(rows)
 
 
 def validate_other_tps(wbm) -> None:
@@ -208,11 +217,18 @@ def sync_split_weighments(wbm) -> None:
 			frappe.db.set_value("Weighment Other TP", row.name, "weighment", child.name, update_modified=False)
 	for name in existing - kept:
 		_delete_split_weighment(name)
+	if len(kept) > 1:
+		# Each split weighment lists the other split TPs: save again now that all are made and linked.
+		for name in kept:
+			child = frappe.get_doc(WBM, name)
+			child.flags.ignore_permissions = True
+			child.save()
 
 
 def _delete_split_weighment(name: str) -> None:
-	# The truck's GRNs list it in their Other TPs: drop those rows first (the GRNs are synced again after).
-	frappe.db.delete("Weighment Other TP", {"weighment": name, "parenttype": "GRN Note"})
+	# The truck's GRNs and the other split weighments list it in their Other TPs: drop those rows first
+	# (they are saved again after).
+	frappe.db.delete("Weighment Other TP", {"weighment": name, "parent": ["!=", name]})
 	for grn in frappe.get_all("GRN Note", filters={"weigh_bridge_measurement": name, "docstatus": ["<", 2]}, pluck="name"):
 		frappe.delete_doc("GRN Note", grn, ignore_permissions=True)
 	frappe.delete_doc(WBM, name, ignore_permissions=True)
@@ -229,32 +245,43 @@ def resync_split_weighments(wbm_name: str) -> None:
 # ------------------------------------------------------------------ GRN
 
 
-def apply_other_tps_to_grn(grn, wbm_name: str, wbm_net_weight: float) -> None:
-	"""GRN Note: Net Weight is the weighment's (this TP's share); "Other TPs" lists the rest of the truck."""
-	w = frappe.db.get_value(WBM, wbm_name, ["split_from_weighment", "rst_net_weight", "pass_unique_key"], as_dict=True) or frappe._dict()
-	truck = (w.split_from_weighment or "").strip() or wbm_name
+def truck_other_tps(wbm_name: str | None, truck: str, own_key: str | None) -> list:
+	"""The Other TPs rows of the truck's weighment, as seen from one of its weighments.
+
+	From the truck's own weighment: its rows. From a split weighment: the truck's own TP (its Net Weight)
+	and the other split TPs, not itself.
+	"""
 	rows = frappe.get_all(
 		"Weighment Other TP",
 		filters={"parent": truck, "parenttype": WBM, "parentfield": "other_tp_details"},
 		fields=list(ROW_FIELDS),
 		order_by="idx asc",
 	)
-	if w.split_from_weighment:
-		# A split GRN: the other TPs are the truck's own TP and the other split ones.
-		p = frappe.db.get_value(WBM, truck, ["transit_pass_no", "pass_unique_key", "pacs_name", "net_weight"], as_dict=True)
-		own = frappe._dict(
-			transit_pass_no=p.transit_pass_no,
-			ppc_name=resolve_ppc_master_name(p.pacs_name) or None,
-			mill_no=resolve_mill_master_name(p.pass_unique_key, None) or None,
-			qty=flt(p.net_weight, 3),
-			pass_unique_key=p.pass_unique_key,
-			weighment=truck,
-		)
-		# Not itself: by weighment, or by TP while a new split weighment is not linked to its row yet.
-		rows = [own] + [
-			row for row in rows
-			if (row.weighment or "") != wbm_name and (row.pass_unique_key or "") != (w.pass_unique_key or "")
-		]
+	if not wbm_name or wbm_name == truck:
+		return rows
+	p = frappe.db.get_value(WBM, truck, ["transit_pass_no", "pass_unique_key", "pacs_name", "net_weight"], as_dict=True)
+	if not p:
+		return rows
+	own = frappe._dict(
+		transit_pass_no=p.transit_pass_no,
+		ppc_name=resolve_ppc_master_name(p.pacs_name) or None,
+		mill_no=resolve_mill_master_name(p.pass_unique_key, None) or None,
+		qty=flt(p.net_weight, 3),
+		pass_unique_key=p.pass_unique_key,
+		weighment=truck,
+	)
+	# Not itself: by weighment, or by TP while a new split weighment is not linked to its row yet.
+	return [own] + [
+		row for row in rows
+		if (row.weighment or "") != wbm_name and (row.pass_unique_key or "") != (own_key or "")
+	]
+
+
+def apply_other_tps_to_grn(grn, wbm_name: str, wbm_net_weight: float) -> None:
+	"""GRN Note: Net Weight is the weighment's (this TP's share); "Other TPs" lists the rest of the truck."""
+	w = frappe.db.get_value(WBM, wbm_name, ["split_from_weighment", "rst_net_weight", "pass_unique_key"], as_dict=True) or frappe._dict()
+	truck = (w.split_from_weighment or "").strip() or wbm_name
+	rows = truck_other_tps(wbm_name if w.split_from_weighment else None, truck, w.pass_unique_key)
 	grn.set("other_tp_details", [])
 	for row in rows:
 		grn.append("other_tp_details", {field: row.get(field) for field in ROW_FIELDS})
