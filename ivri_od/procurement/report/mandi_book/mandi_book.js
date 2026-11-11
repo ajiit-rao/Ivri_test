@@ -113,48 +113,29 @@ ivri_od.mandi_book.attach_tp = function (grn_name) {
 	});
 };
 
-// TP No: a truck (RST) of this TP also carried paddy of other Transit Passes. In Edit mode staff click the
-// TP No, choose the RST and list the other TPs (TP No, PPC Name, Mill No, Qty). They are saved on the
-// weighment; the GRN copies them and its Net Weight is the RST Net Weight less their Qty.
-ivri_od.mandi_book.other_tps = function (pass_unique_key) {
+// RST No: this truck also carried paddy of other Transit Passes. In Edit mode staff click the RST No and
+// list the other TPs (TP No, PPC Name, Mill No, Qty). They are saved on the weighment; the GRN copies
+// them and its Net Weight is the RST Net Weight less their Qty.
+ivri_od.mandi_book.other_tps = function (wbm_name) {
 	const report = frappe.query_report;
 	const api = "ivri_od.procurement.other_tp.";
-	frappe.xcall(api + "get_other_tps", { pass_unique_key }).then((info) => {
-		const rsts = info.rsts || [];
-		if (!rsts.length) {
-			frappe.msgprint(__("TP {0} has no RST with a weighment yet.", [info.transit_pass_no || ""]));
-			return;
-		}
-		const by_label = {};
-		const labels = rsts.map((r) => {
-			const label = `${r.rst_no} (${format_number(r.net_weight, null, 3)} QT)`;
-			by_label[label] = r;
-			return label;
-		});
-		// The RST that already has other TPs comes first.
-		const first = labels.find((l) => by_label[l].rows.length) || labels[0];
-
+	frappe.xcall(api + "get_other_tps", { wbm_name }).then((rst) => {
 		const dialog = new frappe.ui.Dialog({
-			title: __("TP {0}: other TPs in an RST", [info.transit_pass_no || ""]),
+			title: __("RST {0}: other TPs in this truck", [rst.rst_no || ""]),
 			size: "large",
 			fields: [
 				{
-					fieldname: "rst",
-					fieldtype: "Select",
-					label: __("RST No"),
-					options: labels.join("\n"),
-					default: first,
-					reqd: 1,
-					onchange: () => show_rst(),
+					fieldtype: "HTML",
+					fieldname: "intro",
+					options: `<p class="text-muted">${__("TP No {0}. RST Net Weight: {1} QT. The GRN of this TP gets this less the Qty of the other TPs below.", [frappe.utils.escape_html(rst.transit_pass_no || ""), format_number(rst.net_weight, null, 3)])}</p>`,
 				},
-				{ fieldtype: "HTML", fieldname: "intro" },
 				{
 					fieldname: "rows",
 					fieldtype: "Table",
 					label: __("Other TPs in this RST"),
 					cannot_add_rows: false,
 					in_place_edit: true,
-					data: [],
+					data: (rst.rows || []).map((r) => ({ ...r })),
 					fields: [
 						{ fieldname: "transit_pass_no", fieldtype: "Data", label: __("Other TP No"), in_list_view: 1, reqd: 1, columns: 2 },
 						{ fieldname: "ppc_name", fieldtype: "Link", options: "PPC Master", label: __("PPC Name"), in_list_view: 1, columns: 3 },
@@ -165,49 +146,28 @@ ivri_od.mandi_book.other_tps = function (pass_unique_key) {
 			],
 			primary_action_label: __("Save"),
 			primary_action: (values) => {
-				const rst = by_label[values.rst];
-				if (rst.is_split) {
-					frappe.msgprint(__("RST {0} is split over TP Nos (RST No, attach TP No). Use 'Back to one TP No' there first.", [rst.rst_no]));
-					return;
-				}
 				const rows = (values.rows || []).filter((r) => r.transit_pass_no || flt(r.qty));
 				const total = flt(rows.reduce((sum, r) => sum + flt(r.qty), 0), 3);
-				if (total >= flt(rst.net_weight, 3) && rows.length) {
+				if (rows.length && total >= flt(rst.net_weight, 3)) {
 					frappe.msgprint(__("The Qty of the other TPs ({0} QT) must be less than the RST Net Weight ({1} QT).", [total, flt(rst.net_weight, 3)]));
 					return;
 				}
-				frappe.xcall(api + "save_other_tps", { wbm_name: rst.wbm, rows: JSON.stringify(rows) }).then((r) => {
+				frappe.xcall(api + "save_other_tps", { wbm_name, rows: JSON.stringify(rows) }).then((r) => {
 					dialog.hide();
-					const net = r.grn_net_weight == null ? "" : __(" GRN Net Weight: {0} QT.", [format_number(r.grn_net_weight, null, 3)]);
+					const net = r.grn_net_weight == null ? "" : " " + __("GRN Net Weight: {0} QT.", [format_number(r.grn_net_weight, null, 3)]);
 					frappe.show_alert({ message: __("Saved.") + net, indicator: "green" });
 					report.refresh();
 				});
 			},
 		});
-
-		function show_rst() {
-			const rst = by_label[dialog.get_value("rst")];
-			if (!rst) return;
-			const grid = dialog.fields_dict.rows;
-			grid.df.data = rst.rows.map((r) => ({ ...r }));
-			grid.grid.refresh();
-			const note = rst.is_split
-				? `<p class="text-danger">${__("This RST is split over TP Nos in the Mandi Book. Use 'Back to one TP No' there first.")}</p>`
-				: "";
-			dialog.fields_dict.intro.$wrapper.html(
-				`<p class="text-muted">${__("RST Net Weight: {0} QT. The GRN of this TP gets this less the Qty of the other TPs.", [format_number(rst.net_weight, null, 3)])}</p>${note}`
-			);
-		}
-
 		dialog.show();
-		show_rst();
 	});
 };
 
 frappe.query_reports["Mandi Book"] = {
 	collapsible_filters: true,
 	onload(report) {
-		ivri_od.report_edit.add_button(report, ["Excess Received Qty", "RST No (attach TP No)", "TP No (other TPs in an RST)"]);
+		ivri_od.report_edit.add_button(report, ["Excess Received Qty", "RST No (other TPs in this truck)"]);
 		// No season is filled in: staff choose the season they want to see from the drop-down.
 	},
 	filters: [
@@ -287,25 +247,23 @@ frappe.query_reports["Mandi Book"] = {
 			if (data && flt(data.other_tp_qty) > 0) {
 				html += ` <span class="text-muted" title="${__("This truck also carried {0} QT of other TPs; it is not counted here.", [data.other_tp_qty])}">−${data.other_tp_qty}</span>`;
 			}
-			if (data && data.grn_name) {
-				// Edit mode: click the RST No to give its Qty to several TP Nos.
+			if (data && data.grn_name && data.split_qty != null) {
+				// An RST split earlier over several TP Nos keeps its old box ("Back to one TP No").
 				return ivri_od.report_edit.cell(
 					html,
 					`ivri_od.mandi_book.attach_tp(decodeURIComponent('${encodeURIComponent(String(data.grn_name)).replace(/'/g, "%27")}'))`,
-					data.split_qty != null
+					true
+				);
+			}
+			if (data && data.grn_name && data.weigh_bridge_measurement) {
+				// Edit mode: click the RST No to list the other TPs carried in this truck.
+				return ivri_od.report_edit.cell(
+					html,
+					`ivri_od.mandi_book.other_tps(decodeURIComponent('${encodeURIComponent(String(data.weigh_bridge_measurement)).replace(/'/g, "%27")}'))`,
+					flt(data.other_tp_qty) > 0
 				);
 			}
 			return html;
-		}
-
-		if (fieldname === "transit_pass_no" && data && data.pass_unique_key && data.grn_lines) {
-			// Edit mode: click the TP No to give the other TPs of one of its RSTs.
-			const has_other = (data.grn_lines || []).some((line) => flt(line.other_tp_qty) > 0);
-			return ivri_od.report_edit.cell(
-				default_formatter(value, row, column, data),
-				`ivri_od.mandi_book.other_tps(decodeURIComponent('${encodeURIComponent(String(data.pass_unique_key)).replace(/'/g, "%27")}'))`,
-				has_other
-			);
 		}
 
 		if (fieldname === "entry") {

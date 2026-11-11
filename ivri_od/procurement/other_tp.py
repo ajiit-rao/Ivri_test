@@ -4,7 +4,7 @@
 """Other TPs in one RST: a truck weighed under one Transit Pass that also carried paddy of other TPs.
 
 Staff list the other TPs (TP No, PPC Name, Mill No, Qty) on the Weigh Bridge Measurement, in the
-form or from the Mandi Book (Edit, click the TP No). The weighment keeps the Net Weight of the whole
+form or from the Mandi Book (Edit, click the RST No). The weighment keeps the Net Weight of the whole
 truck; the GRN Note gets the same rows and its Net Weight is the truck's Net Weight less their Qty.
 
 Example: RST 1201 weighs 250 QT net under TP 46 and carries 80 QT of TP 51. GRN Net Weight = 170 QT.
@@ -90,31 +90,16 @@ def _grn_for_wbm(wbm_name: str) -> str | None:
 
 
 @frappe.whitelist()
-def get_other_tps(pass_unique_key: str) -> dict:
-	"""Mandi Book dialog: the RSTs of this TP, each with its Net Weight and the other TPs given so far."""
-	frappe.has_permission("Weigh Bridge Measurement", "read", throw=True)
-	key = (pass_unique_key or "").strip()
-	grns = frappe.get_all(
-		"GRN Note",
-		filters={"pass_unique_key": key, "is_local_procurement": 0, "docstatus": ["<", 2], "weigh_bridge_measurement": ["is", "set"]},
-		fields=["name", "rst_no", "weigh_bridge_measurement", "transit_pass_no"],
-		order_by="receipt_datetime asc, creation asc",
-	)
-	rsts = []
-	for grn in grns:
-		wbm = frappe.get_doc("Weigh Bridge Measurement", grn.weigh_bridge_measurement)
-		rsts.append(
-			{
-				"wbm": wbm.name,
-				"grn": grn.name,
-				"rst_no": (grn.rst_no or wbm.rst_no or wbm.name).strip(),
-				"net_weight": flt(wbm.net_weight, 3),
-				"is_split": bool(frappe.db.exists("Mandi Book TP Split", {"grn_note": grn.name})),
-				"rows": [{field: row.get(field) for field in ROW_FIELDS} for row in wbm.get("other_tp_details") or []],
-			}
-		)
-	tp_no = grns[0].transit_pass_no if grns else frappe.db.get_value("PPAS Transit Pass", key, "transit_pass_no")
-	return {"transit_pass_no": tp_no or "", "rsts": rsts}
+def get_other_tps(wbm_name: str) -> dict:
+	"""Mandi Book dialog (click the RST No): the RST's TP No, Net Weight and the other TPs given so far."""
+	wbm = frappe.get_doc("Weigh Bridge Measurement", wbm_name)
+	wbm.check_permission("read")
+	return {
+		"rst_no": (wbm.rst_no or wbm.name or "").strip(),
+		"transit_pass_no": (wbm.transit_pass_no or "").strip(),
+		"net_weight": flt(wbm.net_weight, 3),
+		"rows": [{field: row.get(field) for field in ROW_FIELDS} for row in wbm.get("other_tp_details") or []],
+	}
 
 
 @frappe.whitelist(methods=["POST"])
