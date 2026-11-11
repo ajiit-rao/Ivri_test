@@ -61,6 +61,8 @@ def adjust_weights_for_other_tps(wbm) -> None:
 	rst_net = flt(wbm.net_weight, 3)
 	wbm.rst_net_weight = rst_net
 	wbm.other_tp_qty = other_tp_total(_filled(wbm.get("other_tp_details")))
+	# This TP's Qty: the truck's Gross Weight less the other TPs. Net = that less gunny and deduction.
+	wbm.tp_qty = flt(max(flt(wbm.gross_weight) - flt(wbm.other_tp_qty), 0.0), 3)
 	wbm.net_weight = flt(max(rst_net - flt(wbm.other_tp_qty), 0.0), 3)
 
 
@@ -122,6 +124,8 @@ def validate_split_weighment(child) -> None:
 	rows = truck_other_tps(child.name, child.split_from_weighment, child.pass_unique_key)
 	child.set("other_tp_details", [{field: row.get(field) for field in ROW_FIELDS} for row in rows])
 	child.other_tp_qty = other_tp_total(rows)
+	# Gross Weight - other TPs = this TP's Qty (the truck's TP counts with its own Gross - Other TPs).
+	child.tp_qty = flt(max(flt(child.gross_weight) - flt(child.other_tp_qty), 0.0), 3)
 
 
 def validate_other_tps(wbm) -> None:
@@ -248,8 +252,8 @@ def resync_split_weighments(wbm_name: str) -> None:
 def truck_other_tps(wbm_name: str | None, truck: str, own_key: str | None) -> list:
 	"""The Other TPs rows of the truck's weighment, as seen from one of its weighments.
 
-	From the truck's own weighment: its rows. From a split weighment: the truck's own TP (its Net Weight)
-	and the other split TPs, not itself.
+	From the truck's own weighment: its rows. From a split weighment: the truck's own TP (Qty = Gross -
+	Other TPs) and the other split TPs, not itself.
 	"""
 	rows = frappe.get_all(
 		"Weighment Other TP",
@@ -259,14 +263,17 @@ def truck_other_tps(wbm_name: str | None, truck: str, own_key: str | None) -> li
 	)
 	if not wbm_name or wbm_name == truck:
 		return rows
-	p = frappe.db.get_value(WBM, truck, ["transit_pass_no", "pass_unique_key", "pacs_name", "net_weight"], as_dict=True)
+	p = frappe.db.get_value(
+		WBM, truck, ["transit_pass_no", "pass_unique_key", "pacs_name", "gross_weight", "other_tp_qty"], as_dict=True
+	)
 	if not p:
 		return rows
 	own = frappe._dict(
 		transit_pass_no=p.transit_pass_no,
 		ppc_name=resolve_ppc_master_name(p.pacs_name) or None,
 		mill_no=resolve_mill_master_name(p.pass_unique_key, None) or None,
-		qty=flt(p.net_weight, 3),
+		# Its Qty is Gross - Other TPs, so in every weighment of the RST: Gross - Other TPs = its own TP Qty.
+		qty=flt(max(flt(p.gross_weight) - flt(p.other_tp_qty), 0.0), 3),
 		pass_unique_key=p.pass_unique_key,
 		weighment=truck,
 	)

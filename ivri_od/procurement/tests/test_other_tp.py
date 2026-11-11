@@ -52,6 +52,15 @@ class TestTruckWeighment(unittest.TestCase):
 		self.assertEqual(flt(doc.other_tp_qty, 3), 80)
 		self.assertEqual(flt(doc.net_weight, 3), 170)
 
+	def test_tp_qty_is_gross_less_other_tps(self):
+		doc = frappe.new_doc("Weigh Bridge Measurement")
+		doc.gross_weight, doc.net_weight = 100, 80  # gunny 0, deduction 20
+		doc.append("other_tp_details", {"transit_pass_no": "32", "qty": 20})
+		doc.append("other_tp_details", {"transit_pass_no": "14", "qty": 10})
+		other_tp.adjust_weights_for_other_tps(doc)
+		self.assertEqual(flt(doc.tp_qty, 3), 70)  # 100 - 30
+		self.assertEqual(flt(doc.net_weight, 3), 50)  # 80 - 30
+
 	def test_without_other_tps_net_is_the_truck(self):
 		doc = _wbm([])
 		self.assertEqual(flt(doc.net_weight, 3), 250)

@@ -48,6 +48,7 @@
   "other_tp_section",
   "other_tp_details",
   "other_tp_qty",
+  "tp_qty",
   "rst_net_weight",
   "split_from_weighment",
   "split_qty",
@@ -369,6 +370,15 @@
    "read_only": 1
   },
   {
+   "description": "Gross Weight less the Qty of the other TPs of this RST: the Qty of this weighment's TP.",
+   "fieldname": "tp_qty",
+   "fieldtype": "Float",
+   "label": "TP Qty: Gross - Other TPs (QT)",
+   "non_negative": 1,
+   "precision": "3",
+   "read_only": 1
+  },
+  {
    "description": "Net Weight of the whole truck. Net Weight above is this TP's share.",
    "fieldname": "rst_net_weight",
    "fieldtype": "Float",
@@ -444,7 +454,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-11 15:00:00.000000",
+ "modified": "2026-11-11 17:00:00.000000",
  "modified_by": "Administrator",
  "module": "Procurement",
  "name": "Weigh Bridge Measurement",

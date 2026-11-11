@@ -99,6 +99,7 @@ def persist_wbm_quality_and_net_after_qc_sync(wbm_name: str) -> None:
 			"deduction": doc.deduction,
 			"rst_net_weight": doc.rst_net_weight,
 			"other_tp_qty": doc.other_tp_qty,
+			"tp_qty": doc.get("tp_qty"),
 		},
 		update_modified=True,
 	)
@@ -822,6 +823,10 @@ class WeighBridgeMeasurement(Document):
 		self.deduction = flt(dust_kg / 100, 3) if dust_kg > 0 else 0
 
 	def _update_weights(self):
+		if (self.get("split_from_weighment") or "").strip():
+			# Split weighment: the truck's weights and its own Deduction (not the Quality Check dust).
+			adjust_weights_for_other_tps(self)
+			return
 		self._sync_deduction()
 		self._sync_total_bags_from_qc_table()
 		load_weight = flt(self.load_weight)
