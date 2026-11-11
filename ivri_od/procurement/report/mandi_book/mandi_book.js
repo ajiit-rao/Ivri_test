@@ -116,46 +116,15 @@ ivri_od.mandi_book.attach_tp = function (grn_name) {
 // RST No: this truck also carried paddy of other Transit Passes. In Edit mode staff click the RST No and
 // list the other TPs (TP No, PPC Name, Mill No, Qty). On save each other TP gets its own weighment and GRN
 // (same RST, Quality Check and vehicle) with its Qty, and this TP keeps the rest of the RST Net Weight.
-ivri_od.mandi_book.all_tps_html = function (rst) {
-	// All TPs of this RST (read only): the RST's own TP first, then the other TPs.
-	const esc = (v) => frappe.utils.escape_html(v == null ? "" : String(v));
-	const num = (v) => (v == null || v === "" ? "" : format_number(v, null, 3));
-	const link = (dt, name) => (name ? `<a href="${frappe.utils.get_form_link(dt, name)}" target="_blank">${esc(name)}</a>` : "");
-	const rows = rst.all_tps || [];
-	let total = 0;
-	const body = rows
-		.map((r) => {
-			total += flt(r.qty);
-			return `<tr${r.is_own ? ' style="font-weight:600"' : ""}>
-				<td>${esc(r.season)}</td>
-				<td>${esc(r.transit_pass_no)}${r.is_own ? ` <span class="text-muted">(${__("this RST")})</span>` : ""}</td>
-				<td>${esc(r.ppc_label)}<div class="text-muted small">${esc(r.ppc_name)}</div></td>
-				<td>${esc(r.mill_label)}<div class="text-muted small">${esc(r.mill_no)}</div></td>
-				<td class="text-right">${num(r.qty)}</td>
-				<td class="text-right">${num(r.deduction)}</td>
-				<td class="text-right">${num(r.net_weight)}</td>
-				<td>${link("Weigh Bridge Measurement", r.weighment)}<div>${link("GRN Note", r.grn)}</div></td>
-			</tr>`;
-		})
-		.join("");
-	return `<div class="mb-3">
-		<label class="control-label">${__("All TPs in RST {0}", [esc(rst.rst_no)])}</label>
-		<table class="table table-bordered table-sm small mb-1">
-			<thead><tr>
-				<th>${__("Season")}</th><th>${__("TP No")}</th><th>${__("PPC Name")}</th><th>${__("Mill Name")}</th>
-				<th class="text-right">${__("TP Qty (QT)")}</th><th class="text-right">${__("Deduction")}</th>
-				<th class="text-right">${__("Net Weight")}</th><th>${__("Weighment / GRN")}</th>
-			</tr></thead>
-			<tbody>${body}</tbody>
-			<tfoot><tr><th colspan="4">${__("Total (= Gross Weight {0} QT)", [num(rst.gross_weight)])}</th><th class="text-right">${num(total)}</th><th colspan="3"></th></tr></tfoot>
-		</table>
-	</div>`;
-};
-
 ivri_od.mandi_book.other_tps = function (wbm_name) {
 	const report = frappe.query_report;
 	const api = "ivri_od.procurement.other_tp.";
 	frappe.xcall(api + "get_other_tps", { wbm_name }).then((rst) => {
+		// All TPs of the RST in one table: the RST's own TP first (read only), then the other TPs.
+		(rst.all_tps || []).forEach((r) => {
+			if (r.ppc_name && r.ppc_label) frappe.utils.add_link_title("PPC Master", r.ppc_name, r.ppc_label);
+			if (r.mill_no && r.mill_label) frappe.utils.add_link_title("Mill Master", r.mill_no, r.mill_label);
+		});
 		const dialog = new frappe.ui.Dialog({
 			title: __("RST {0}: other TPs in this truck", [rst.rst_no || ""]),
 			size: "large",
@@ -163,33 +132,31 @@ ivri_od.mandi_book.other_tps = function (wbm_name) {
 				{
 					fieldtype: "HTML",
 					fieldname: "intro",
-					options: `<p class="text-muted">${__("TP No {0} (Season {2}). RST Net Weight: {1} QT. On save, each TP below gets its own weighment and GRN with its Qty (same RST, Quality Check and vehicle); TP No {0} keeps the rest. Season left blank: {2}.", [frappe.utils.escape_html(rst.transit_pass_no || ""), format_number(rst.net_weight, null, 3), frappe.utils.escape_html(rst.season || "-")])}</p>`,
-				},
-				{
-					fieldtype: "HTML",
-					fieldname: "all_tps",
-					options: ivri_od.mandi_book.all_tps_html(rst),
+					options: `<p class="text-muted">${__("Gross Weight {3} QT, RST Net Weight {1} QT. Row 1 is this RST's own TP {0}: its Qty is Gross Weight less the other TPs, worked out on save. Add the other TPs below it; on save each gets its own weighment and GRN with its Qty (same RST, Quality Check and vehicle). Season left blank: {2}.", [frappe.utils.escape_html(rst.transit_pass_no || ""), format_number(rst.net_weight, null, 3), frappe.utils.escape_html(rst.season || "-"), format_number(rst.gross_weight, null, 3)])}</p>`,
 				},
 				{
 					fieldname: "rows",
 					fieldtype: "Table",
-					label: __("Other TPs in this RST (add or change here)"),
+					label: __("Other TPs in this RST"),
 					cannot_add_rows: false,
 					in_place_edit: true,
-					data: (rst.rows || []).map((r) => ({ ...r })),
+					data: (rst.all_tps || rst.rows || []).map((r) => ({ ...r })),
 					fields: [
-						{ fieldname: "season", fieldtype: "Link", options: "Season Master", label: __("Season"), in_list_view: 1, columns: 2, default: rst.season || "" },
-						{ fieldname: "transit_pass_no", fieldtype: "Data", label: __("Other TP No"), in_list_view: 1, reqd: 1, columns: 1 },
+						{ fieldname: "season", fieldtype: "Link", options: "Season Master", label: __("Season"), in_list_view: 1, columns: 1, default: rst.season || "" },
+						{ fieldname: "transit_pass_no", fieldtype: "Data", label: __("TP No"), in_list_view: 1, reqd: 1, columns: 1 },
 						{ fieldname: "ppc_name", fieldtype: "Link", options: "PPC Master", label: __("PPC Name"), in_list_view: 1, columns: 2 },
-						{ fieldname: "mill_no", fieldtype: "Link", options: "Mill Master", label: __("Mill No"), in_list_view: 1, columns: 2 },
-						{ fieldname: "qty", fieldtype: "Float", label: __("Qty (QT)"), precision: 3, in_list_view: 1, reqd: 1, columns: 1 },
+						{ fieldname: "mill_no", fieldtype: "Link", options: "Mill Master", label: __("Mill Name"), in_list_view: 1, columns: 2 },
+						{ fieldname: "qty", fieldtype: "Float", label: __("TP Qty (QT)"), precision: 3, in_list_view: 1, reqd: 1, columns: 1 },
+						{ fieldname: "net_weight", fieldtype: "Float", label: __("Net Weight"), precision: 3, in_list_view: 1, read_only: 1, columns: 1 },
 						{ fieldname: "weighment", fieldtype: "Link", options: "Weigh Bridge Measurement", label: __("Weighment"), in_list_view: 1, read_only: 1, columns: 2 },
+						{ fieldname: "is_own", fieldtype: "Check", label: __("This RST's own TP"), read_only: 1, hidden: 1 },
 					],
 				},
 			],
 			primary_action_label: __("Save"),
 			primary_action: (values) => {
-				const rows = (values.rows || []).filter((r) => r.transit_pass_no || flt(r.qty));
+				// Row of the RST's own TP is shown only: its Qty follows from the other TPs.
+				const rows = (values.rows || []).filter((r) => !r.is_own && (r.transit_pass_no || flt(r.qty)));
 				const total = flt(rows.reduce((sum, r) => sum + flt(r.qty), 0), 3);
 				if (rows.length && total >= flt(rst.net_weight, 3)) {
 					frappe.msgprint(__("The Qty of the other TPs ({0} QT) must be less than the RST Net Weight ({1} QT).", [total, flt(rst.net_weight, 3)]));
