@@ -29,13 +29,23 @@ from ivri_od.procurement.transit_pass_resolve import (
 )
 
 WBM = "Weigh Bridge Measurement"
-ROW_FIELDS = ("transit_pass_no", "ppc_name", "mill_no", "qty", "pass_unique_key", "weighment")
+ROW_FIELDS = ("season", "transit_pass_no", "ppc_name", "mill_no", "qty", "pass_unique_key", "weighment")
 # Copied from the truck's weighment to a split weighment: same RST, visit, Quality Check and vehicle.
 COPY_FIELDS = (
 	"rst_no", "date", "gate_entry", "quality_check", "slno_of_qc", "quality_test", "commodity", "gunny_type",
 	"vehicle_no",
 )
 SPLIT_TP_STATUS = "TP Received"
+
+
+def tp_season(pass_unique_key: str | None) -> str | None:
+	"""Season Master of a Transit Pass (its PPAS season text, e.g. Kharif 2025 or K25)."""
+	from ivri_od.procurement.doctype.season_master.season_master import resolve_season_master_name
+
+	if not (pass_unique_key or "").strip():
+		return None
+	text = frappe.db.get_value("PPAS Transit Pass", {"pass_unique_key": pass_unique_key}, "season")
+	return resolve_season_master_name(text) or None
 
 
 def other_tp_total(rows) -> float:
@@ -143,7 +153,7 @@ def validate_other_tps(wbm) -> None:
 		frappe.throw(_("Other TPs can be added only to a weighment under a Transit Pass."))
 
 	own_ppc = resolve_ppc_master_name(wbm.pacs_name) or ""
-	season = frappe.db.get_value("PPAS Transit Pass", {"pass_unique_key": wbm.pass_unique_key}, "season") or None
+	own_season = tp_season(wbm.pass_unique_key)
 	seen = set()
 	for row in rows:
 		row.transit_pass_no = (row.transit_pass_no or "").strip()
@@ -152,6 +162,10 @@ def validate_other_tps(wbm) -> None:
 		if flt(row.qty) <= 0:
 			frappe.throw(_("Other TPs, row {0}: enter the Qty of TP No {1}.").format(row.idx, row.transit_pass_no))
 		ppc = (row.ppc_name or "").strip() or own_ppc
+		# Season of the other TP: as chosen, else the season of this weighment's TP.
+		season = (row.season or "").strip() or own_season
+		if season and not frappe.db.exists("Season Master", season):
+			frappe.throw(_("Other TPs, row {0}: Season {1} not found in Season Master.").format(row.idx, season))
 		found = get_transit_pass_for_ppc_and_tp_no(ppc, row.transit_pass_no, season=season) if ppc else None
 		key = ((found or {}).get("pass_unique_key") or (found or {}).get("name") or "").strip()
 		if not key:
@@ -171,6 +185,7 @@ def validate_other_tps(wbm) -> None:
 				_("Other TPs, row {0}: TP No {1} is for Mill No {2}, not {3}.").format(row.idx, row.transit_pass_no, mill, row.mill_no)
 			)
 		row.ppc_name = ppc
+		row.season = season or None
 		row.mill_no = (row.mill_no or "").strip() or mill or None
 		row.pass_unique_key = key
 
@@ -269,6 +284,7 @@ def truck_other_tps(wbm_name: str | None, truck: str, own_key: str | None) -> li
 	if not p:
 		return rows
 	own = frappe._dict(
+		season=tp_season(p.pass_unique_key),
 		transit_pass_no=p.transit_pass_no,
 		ppc_name=resolve_ppc_master_name(p.pacs_name) or None,
 		mill_no=resolve_mill_master_name(p.pass_unique_key, None) or None,
@@ -315,6 +331,7 @@ def get_other_tps(wbm_name: str) -> dict:
 		"wbm_name": wbm.name,
 		"rst_no": (wbm.rst_no or wbm.name or "").strip(),
 		"transit_pass_no": (wbm.transit_pass_no or "").strip(),
+		"season": tp_season(wbm.pass_unique_key),
 		"net_weight": flt(wbm.rst_net_weight, 3) or flt(wbm.net_weight, 3),
 		"rows": [{field: row.get(field) for field in ROW_FIELDS} for row in wbm.get("other_tp_details") or []],
 	}

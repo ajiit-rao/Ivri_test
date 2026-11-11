@@ -99,6 +99,22 @@ class TestTruckWeighment(unittest.TestCase):
 		with self.assertRaises(frappe.ValidationError):
 			_validate(_wbm([{"transit_pass_no": "51", "qty": 0.0001}, {"transit_pass_no": "52", "qty": -1}]))
 
+	def test_unknown_season_is_refused(self):
+		with self.assertRaises(frappe.ValidationError):
+			_validate(_wbm([{"season": "No Such Season 1999", "transit_pass_no": "51", "qty": 10}]))
+
+	def test_season_is_used_to_find_the_tp(self):
+		doc = _wbm([{"season": "S-OTHER", "transit_pass_no": "51", "qty": 10}])
+		with (
+			patch(f"{OTHER_TP}.frappe.db.exists", return_value=True),
+			patch(f"{OTHER_TP}.resolve_ppc_master_name", return_value="S1"),
+			patch(f"{OTHER_TP}.get_transit_pass_for_ppc_and_tp_no", return_value=TP_51) as find,
+			patch(f"{OTHER_TP}.resolve_mill_master_name", return_value="M1"),
+		):
+			other_tp.validate_other_tps(doc)
+		self.assertEqual(find.call_args.kwargs["season"], "S-OTHER")
+		self.assertEqual(doc.other_tp_details[0].season, "S-OTHER")
+
 	def test_same_tp_twice_is_refused(self):
 		with self.assertRaises(frappe.ValidationError):
 			_validate(_wbm([{"transit_pass_no": "51", "qty": 10}, {"transit_pass_no": "51", "qty": 5}]))

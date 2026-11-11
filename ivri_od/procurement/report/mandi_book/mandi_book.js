@@ -127,7 +127,7 @@ ivri_od.mandi_book.other_tps = function (wbm_name) {
 				{
 					fieldtype: "HTML",
 					fieldname: "intro",
-					options: `<p class="text-muted">${__("TP No {0}. RST Net Weight: {1} QT. On save, each TP below gets its own weighment and GRN with its Qty (same RST, Quality Check and vehicle); TP No {0} keeps the rest.", [frappe.utils.escape_html(rst.transit_pass_no || ""), format_number(rst.net_weight, null, 3)])}</p>`,
+					options: `<p class="text-muted">${__("TP No {0} (Season {2}). RST Net Weight: {1} QT. On save, each TP below gets its own weighment and GRN with its Qty (same RST, Quality Check and vehicle); TP No {0} keeps the rest. Season left blank: {2}.", [frappe.utils.escape_html(rst.transit_pass_no || ""), format_number(rst.net_weight, null, 3), frappe.utils.escape_html(rst.season || "-")])}</p>`,
 				},
 				{
 					fieldname: "rows",
@@ -137,10 +137,11 @@ ivri_od.mandi_book.other_tps = function (wbm_name) {
 					in_place_edit: true,
 					data: (rst.rows || []).map((r) => ({ ...r })),
 					fields: [
-						{ fieldname: "transit_pass_no", fieldtype: "Data", label: __("Other TP No"), in_list_view: 1, reqd: 1, columns: 2 },
+						{ fieldname: "season", fieldtype: "Link", options: "Season Master", label: __("Season"), in_list_view: 1, columns: 2, default: rst.season || "" },
+						{ fieldname: "transit_pass_no", fieldtype: "Data", label: __("Other TP No"), in_list_view: 1, reqd: 1, columns: 1 },
 						{ fieldname: "ppc_name", fieldtype: "Link", options: "PPC Master", label: __("PPC Name"), in_list_view: 1, columns: 2 },
 						{ fieldname: "mill_no", fieldtype: "Link", options: "Mill Master", label: __("Mill No"), in_list_view: 1, columns: 2 },
-						{ fieldname: "qty", fieldtype: "Float", label: __("Qty (QT)"), precision: 3, in_list_view: 1, reqd: 1, columns: 2 },
+						{ fieldname: "qty", fieldtype: "Float", label: __("Qty (QT)"), precision: 3, in_list_view: 1, reqd: 1, columns: 1 },
 						{ fieldname: "weighment", fieldtype: "Link", options: "Weigh Bridge Measurement", label: __("Weighment"), in_list_view: 1, read_only: 1, columns: 2 },
 					],
 				},
