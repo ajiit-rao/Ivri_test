@@ -590,9 +590,10 @@ def _rst_lines(docs, wbm_by_name: dict, bags_by_wbm: dict) -> list[dict]:
 		split_qty = doc.get("split_qty")
 		other_tp_qty = flt(doc.get("other_tp_qty"), 3) if split_qty is None else 0.0
 		own_qty = split_qty
-		if other_tp_qty > 0:
-			# Other TPs in the same truck (weighment "Other TPs"): this TP keeps the rest.
-			own_qty = max(gross_wt - gunny_weight - deduction - other_tp_qty, 0.0)
+		if other_tp_qty > 0 and (gross_wt - gunny_weight - deduction) - flt(net_wt) > 0.001:
+			# The truck's own weighment holds the whole truck's weights; this TP keeps its Net Weight.
+			# (A split weighment of another TP already has its share of the weights.)
+			own_qty = max(flt(net_wt), 0.0)
 		ratio = 1
 		if own_qty is not None:
 			# This RST is shared by several TP Nos: this TP gets its Qty, and gross, gunny, deduction and

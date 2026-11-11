@@ -48,6 +48,9 @@
   "other_tp_section",
   "other_tp_details",
   "other_tp_qty",
+  "rst_net_weight",
+  "split_from_weighment",
+  "split_qty",
   "section_break_rnxd",
   "bag_weight_details"
  ],
@@ -344,8 +347,8 @@
   },
   {
    "collapsible": 1,
-   "collapsible_depends_on": "eval:doc.other_tp_qty",
-   "description": "Fill only when this truck also carried paddy of other Transit Passes. Their Qty is taken out of the GRN Net Weight of this TP.",
+   "collapsible_depends_on": "eval:doc.other_tp_qty || doc.split_from_weighment",
+   "description": "Fill only when this truck also carried paddy of other Transit Passes. On save, a weighment and a GRN are made for each of them with its Qty, and their Qty is taken out of this TP's Net Weight.",
    "fieldname": "other_tp_section",
    "fieldtype": "Section Break",
    "label": "Other TPs in this RST"
@@ -361,6 +364,34 @@
    "fieldname": "other_tp_qty",
    "fieldtype": "Float",
    "label": "Other TP Qty (QT)",
+   "non_negative": 1,
+   "precision": "3",
+   "read_only": 1
+  },
+  {
+   "description": "Net Weight of the whole truck. Net Weight above is this TP's share.",
+   "fieldname": "rst_net_weight",
+   "fieldtype": "Float",
+   "label": "RST Net Weight (QT)",
+   "non_negative": 1,
+   "precision": "3",
+   "read_only": 1
+  },
+  {
+   "description": "Made from the Other TPs of this weighment (same truck). Its weights follow that weighment.",
+   "fieldname": "split_from_weighment",
+   "fieldtype": "Link",
+   "label": "Split from Weighment",
+   "no_copy": 1,
+   "options": "Weigh Bridge Measurement",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.split_from_weighment",
+   "fieldname": "split_qty",
+   "fieldtype": "Float",
+   "label": "Qty for this TP (QT)",
+   "no_copy": 1,
    "non_negative": 1,
    "precision": "3",
    "read_only": 1
@@ -413,7 +444,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-11 12:00:00.000000",
+ "modified": "2026-11-11 15:00:00.000000",
  "modified_by": "Administrator",
  "module": "Procurement",
  "name": "Weigh Bridge Measurement",

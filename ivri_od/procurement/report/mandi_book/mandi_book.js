@@ -114,8 +114,8 @@ ivri_od.mandi_book.attach_tp = function (grn_name) {
 };
 
 // RST No: this truck also carried paddy of other Transit Passes. In Edit mode staff click the RST No and
-// list the other TPs (TP No, PPC Name, Mill No, Qty). They are saved on the weighment; the GRN copies
-// them and its Net Weight is the RST Net Weight less their Qty.
+// list the other TPs (TP No, PPC Name, Mill No, Qty). On save each other TP gets its own weighment and GRN
+// (same RST, Quality Check and vehicle) with its Qty, and this TP keeps the rest of the RST Net Weight.
 ivri_od.mandi_book.other_tps = function (wbm_name) {
 	const report = frappe.query_report;
 	const api = "ivri_od.procurement.other_tp.";
@@ -127,7 +127,7 @@ ivri_od.mandi_book.other_tps = function (wbm_name) {
 				{
 					fieldtype: "HTML",
 					fieldname: "intro",
-					options: `<p class="text-muted">${__("TP No {0}. RST Net Weight: {1} QT. The GRN of this TP gets this less the Qty of the other TPs below.", [frappe.utils.escape_html(rst.transit_pass_no || ""), format_number(rst.net_weight, null, 3)])}</p>`,
+					options: `<p class="text-muted">${__("TP No {0}. RST Net Weight: {1} QT. On save, each TP below gets its own weighment and GRN with its Qty (same RST, Quality Check and vehicle); TP No {0} keeps the rest.", [frappe.utils.escape_html(rst.transit_pass_no || ""), format_number(rst.net_weight, null, 3)])}</p>`,
 				},
 				{
 					fieldname: "rows",
@@ -138,9 +138,10 @@ ivri_od.mandi_book.other_tps = function (wbm_name) {
 					data: (rst.rows || []).map((r) => ({ ...r })),
 					fields: [
 						{ fieldname: "transit_pass_no", fieldtype: "Data", label: __("Other TP No"), in_list_view: 1, reqd: 1, columns: 2 },
-						{ fieldname: "ppc_name", fieldtype: "Link", options: "PPC Master", label: __("PPC Name"), in_list_view: 1, columns: 3 },
+						{ fieldname: "ppc_name", fieldtype: "Link", options: "PPC Master", label: __("PPC Name"), in_list_view: 1, columns: 2 },
 						{ fieldname: "mill_no", fieldtype: "Link", options: "Mill Master", label: __("Mill No"), in_list_view: 1, columns: 2 },
 						{ fieldname: "qty", fieldtype: "Float", label: __("Qty (QT)"), precision: 3, in_list_view: 1, reqd: 1, columns: 2 },
+						{ fieldname: "weighment", fieldtype: "Link", options: "Weigh Bridge Measurement", label: __("Weighment"), in_list_view: 1, read_only: 1, columns: 2 },
 					],
 				},
 			],
@@ -152,9 +153,10 @@ ivri_od.mandi_book.other_tps = function (wbm_name) {
 					frappe.msgprint(__("The Qty of the other TPs ({0} QT) must be less than the RST Net Weight ({1} QT).", [total, flt(rst.net_weight, 3)]));
 					return;
 				}
-				frappe.xcall(api + "save_other_tps", { wbm_name, rows: JSON.stringify(rows) }).then((r) => {
+				// A split RST row opens its truck's weighment: save there.
+				frappe.xcall(api + "save_other_tps", { wbm_name: rst.wbm_name || wbm_name, rows: JSON.stringify(rows) }).then((r) => {
 					dialog.hide();
-					const net = r.grn_net_weight == null ? "" : " " + __("GRN Net Weight: {0} QT.", [format_number(r.grn_net_weight, null, 3)]);
+					const net = r.grn_net_weight == null ? "" : " " + __("GRN Net Weight of TP {0}: {1} QT.", [rst.transit_pass_no || "", format_number(r.grn_net_weight, null, 3)]);
 					frappe.show_alert({ message: __("Saved.") + net, indicator: "green" });
 					report.refresh();
 				});

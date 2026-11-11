@@ -10,7 +10,13 @@ from ivri_od.procurement.datetime_fields import ensure_doc_datetime
 
 from ivri_od.procurement.bag_balance import get_weigh_bridge_bags_for_tp
 from ivri_od.procurement.grn_tp_fulfillment import refresh_tp_fulfillment_for_pass
-from ivri_od.procurement.other_tp import validate_other_tps
+from ivri_od.procurement.other_tp import (
+	adjust_weights_for_other_tps,
+	resync_split_weighments,
+	sync_split_weighments,
+	validate_other_tps,
+	validate_split_weighment,
+)
 from ivri_od.procurement.doctype.rst_details.rst_details import (
 	get_rst_agent_name,
 	is_private_procurement_rst,
@@ -87,9 +93,17 @@ def persist_wbm_quality_and_net_after_qc_sync(wbm_name: str) -> None:
 	frappe.db.set_value(
 		"Weigh Bridge Measurement",
 		wbm_name,
-		{"quality_test": doc.quality_test, "net_weight": doc.net_weight, "deduction": doc.deduction},
+		{
+			"quality_test": doc.quality_test,
+			"net_weight": doc.net_weight,
+			"deduction": doc.deduction,
+			"rst_net_weight": doc.rst_net_weight,
+			"other_tp_qty": doc.other_tp_qty,
+		},
 		update_modified=True,
 	)
+	# Other TPs in this truck: their split weighments follow the new weights.
+	resync_split_weighments(wbm_name)
 
 
 def _trim_qty(value, max_decimals: int = QTY_MAX_DECIMALS) -> float:
@@ -266,6 +280,8 @@ class WeighBridgeMeasurement(Document):
 		self._schedule_procurement_rollup_sync()
 
 	def on_update(self):
+		# First: one weighment per Other TP of this truck, so the GRN synced below links them.
+		sync_split_weighments(self)
 		self._sync_measurement_columns()
 		# Recheck when RST adds a TP key or tare/QC values make this WBM eligible.
 		_ensure_grn_note_for_weigh_bridge(self.name)
@@ -308,6 +324,10 @@ class WeighBridgeMeasurement(Document):
 				)
 
 	def validate(self):
+		if (self.get("split_from_weighment") or "").strip():
+			# Made from the Other TPs of a truck's weighment: everything follows that weighment.
+			validate_split_weighment(self)
+			return
 		self._sync_date_from_rst()
 		self._sync_party_from_rst()
 		ensure_doc_datetime(self, "date", default_now=True)
@@ -818,6 +838,8 @@ class WeighBridgeMeasurement(Document):
 		gunny_weight = flt(self.gunny_weight)
 		deduction = flt(self.deduction)
 		self.net_weight = flt(max(flt(self.gross_weight) - gunny_weight - deduction, 0), 3)
+		# Other TPs in this truck: Net Weight is this TP's share (split weighments: their own Qty).
+		adjust_weights_for_other_tps(self)
 
 	def _validate_quality_and_tare(self):
 		gunny_type = (self.gunny_type or "").strip()

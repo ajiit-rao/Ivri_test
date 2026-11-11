@@ -473,7 +473,7 @@
   },
   {
    "depends_on": "eval:doc.other_tp_qty",
-   "description": "Taken out: paddy of other TPs in the same truck.",
+   "description": "Paddy of other TPs in the same truck, each with its own weighment and GRN.",
    "fieldname": "other_tp_qty",
    "fieldtype": "Float",
    "label": "Other TP Qty (QT)",
@@ -739,7 +739,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-11 12:00:00.000000",
+ "modified": "2026-11-11 15:00:00.000000",
  "modified_by": "Administrator",
  "module": "Procurement",
  "name": "GRN Note",
