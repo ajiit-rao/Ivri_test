@@ -247,7 +247,9 @@ frappe.query_reports["Mandi Book"] = {
 				html += ` <span class="text-muted" title="${__("This RST is shared by several TP Nos. Qty for this TP No: {0}", [data.split_qty])}">⇄ ${data.split_qty}</span>`;
 			}
 			if (data && flt(data.other_tp_qty) > 0) {
-				html += ` <span class="text-muted" title="${__("This truck also carried {0} QT of other TPs; it is not counted here.", [data.other_tp_qty])}">−${data.other_tp_qty}</span>`;
+				// This RST also carried other TPs: show this TP's own Qty (Gross - Other TPs).
+				const own = flt(data.rst_tp_qty) || flt(data.net_weight);
+				html += ` <span class="text-muted" title="${__("This RST also carried {0} QT of other TPs. Qty of this TP: {1} QT (Gross - Other TPs).", [data.other_tp_qty, own])}">⇄ ${own}</span>`;
 			}
 			if (data && data.grn_name && data.split_qty != null) {
 				// An RST split earlier over several TP Nos keeps its old box ("Back to one TP No").

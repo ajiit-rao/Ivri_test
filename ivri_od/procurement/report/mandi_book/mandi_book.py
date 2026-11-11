@@ -498,6 +498,7 @@ def _weigh_bridges_for(grns) -> dict[str, dict]:
 			"rst_net_weight",
 			"split_from_weighment",
 			"split_qty",
+			"tp_qty",
 		],
 	)
 	return {row.name: row for row in rows}
@@ -621,6 +622,8 @@ def _rst_lines(docs, wbm_by_name: dict, bags_by_wbm: dict) -> list[dict]:
 			{
 				"split_qty": flt(split_qty, 3) if split_qty is not None else None,
 				"other_tp_qty": other_tp_qty or None,
+				# RST shared with other TPs: this TP's Qty (Gross - Other TPs of its weighment).
+				"rst_tp_qty": (flt(wbm.get("tp_qty"), 3) or None) if other_tp_qty > 0 else None,
 				"grn_no": (doc.grn_no or doc.name or "").strip(),
 				"grn_name": (doc.name or "").strip(),
 				"rst_no": rst_no,
@@ -749,6 +752,7 @@ def _grn_fields_dict(line: dict) -> dict:
 		"weigh_bridge_measurement": (line.get("weigh_bridge_measurement") or "").strip(),
 		"split_qty": line.get("split_qty"),
 		"other_tp_qty": line.get("other_tp_qty"),
+		"rst_tp_qty": line.get("rst_tp_qty"),
 	}
 
 
@@ -768,6 +772,7 @@ def _empty_grn_dict() -> dict:
 		"weigh_bridge_measurement": "",
 		"split_qty": None,
 		"other_tp_qty": None,
+		"rst_tp_qty": None,
 	}
 
 
