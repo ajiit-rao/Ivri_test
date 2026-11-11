@@ -127,7 +127,7 @@ ivri_od.mandi_book.other_tps = function (wbm_name) {
 		});
 		const dialog = new frappe.ui.Dialog({
 			title: __("RST {0}: other TPs in this truck", [rst.rst_no || ""]),
-			size: "large",
+			size: "extra-large",
 			fields: [
 				{
 					fieldtype: "HTML",
@@ -171,6 +171,8 @@ ivri_od.mandi_book.other_tps = function (wbm_name) {
 				});
 			},
 		});
+		// Wide box so every column of the table can be seen.
+		dialog.$wrapper.find(".modal-dialog").css({ "max-width": "95vw", width: "95vw" });
 		dialog.show();
 	});
 };
