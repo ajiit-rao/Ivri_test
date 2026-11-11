@@ -7,10 +7,17 @@ from unittest.mock import patch
 import frappe
 from frappe.tests import IntegrationTestCase
 
-from ivri_od.procurement.report.rice_stock_report.rice_stock_report import execute, fci_delivery, rrc_delivery
+from ivri_od.procurement.report.rice_stock_report.rice_stock_report import (
+	execute,
+	fci_delivery,
+	fci_net_weight_delivery,
+	rrc_delivery,
+)
 
 MILL = "_TEST_RICE_MILL"
-FILTERS = {"mill": MILL, "kms_year": "25-26", "from_month": "2026-05-01", "to_month": "2026-07-31"}
+FILTERS = {"mill": MILL, "kms_year": "25-26", "season": "Both"}
+# Season Master dates of the test: May - July 2026 (the months of the statement).
+SEASON = frappe._dict(name="TEST SEASON", start_date="2026-05-01", end_date="2026-07-31")
 # Paddy Stock Register's Issue for Milling (paddy, Qtl) by District: (date, district, qty).
 ISSUE_FOR_MILLING = [
 	(date(2026, 4, 20), "Balangir", 1000),  # before From Month: OB (1000 x 68% = 680)
@@ -20,7 +27,7 @@ ISSUE_FOR_MILLING = [
 ]
 
 
-def fake_issue_for_milling(filters, to_date):
+def fake_issue_for_milling(filters, to_date, crop_season=None):
 	"""Stands in for the Paddy Stock Register: only the District's rows when one is given."""
 	return [
 		(day, "issue_for_milling", qty)
@@ -64,6 +71,12 @@ class TestRiceStockReport(IntegrationTestCase):
 		)
 		issue_patch.start()
 		self.addCleanup(issue_patch.stop)
+		season_patch = patch(
+			"ivri_od.procurement.report.rice_stock_report.rice_stock_report.get_kms_season_masters",
+			return_value=[SEASON],
+		)
+		self.season_masters = season_patch.start()
+		self.addCleanup(season_patch.stop)
 		self.add("DCRO", "DC Transit Challan", [
 			fci_row("1", "11-05-2026", "287.41811", dc="DCF-B1"),
 			fci_row("2", "12-06-2026", "287.50925", depot_code="DW050101", depot_name="SWC BOLANGIR", dc="DCF-K1"),
@@ -187,3 +200,35 @@ class TestRiceStockReport(IntegrationTestCase):
 		self.assertEqual(fci_delivery(fci_row("1", "11-05-2026", "287.41811"))[1:], ("DW051602-SWC KANTABHANJI", 287.41811))
 		self.assertIsNone(fci_delivery(fci_row("1", "", "287.5"))[0])
 		self.assertEqual(str(rrc_delivery(rrc_row("1", "14/07/2026", "289.536"))[0]), "2026-07-14")
+
+	def test_season_filter(self):
+		self.assertRaises(frappe.ValidationError, execute, {**FILTERS, "season": "Summer"})
+		self.add("DCRO", "View DC", [
+			{"Season": "Kharif", "DC Code(RRC)": "DCF-B1"},
+			{"Season": "Rabi", "DC Code(RRC)": "DCF-K1"},
+			{"Season": "Rabi", "DC Code(RRC)": "DCR-B1"},
+			{"Season": "", "DC Code(RRC)": "DCR-K1"},  # no Season: not counted, told in the message
+		])
+		_columns, data, message = execute({**FILTERS, "season": "Rabi"})
+		self.season_masters.assert_called_with("25-26", "Rabi")
+		may, jun, jul = data[0], data[1], data[2]
+		self.assertEqual(may["ob"], 580)  # 680 - 100 (RRC lot of DCR-B1 in April)
+		self.assertEqual((may["fci_total"], jun["fci_total"]), (0, 287.51))  # DCF-B1 is Kharif
+		self.assertEqual(jul["rrc_total"], 289.74)  # DCR-B1 only
+		self.assertIn("1 DCs of mill", message)
+
+	def test_months_from_data_without_season_dates(self):
+		self.season_masters.return_value = [frappe._dict(name="TEST SEASON", start_date=None, end_date=None)]
+		_columns, data, _message = execute(dict(FILTERS))
+		# First data month: April 2026 (issue for milling, RRC lot); last: August 2026 (issue for milling).
+		self.assertEqual([row["month"] for row in data], ["Apr-26", "May-26", "Jun-26", "Jul-26", "Aug-26", "Total"])
+		self.assertEqual(data[0]["ob"], 0)
+
+	def test_fci_delivery_uses_net_weight(self):
+		row = {**fci_row("1", "11-05-2026", "289.73600"), "Weight After Moisture Cut": "287.41811"}
+		self.assertEqual(fci_net_weight_delivery(row)[2], 289.736)  # Net Weight
+		self.assertEqual(fci_delivery(row)[2], 287.41811)  # unchanged for Rice Stock Register / PVR
+		self.add("DCRO", "DC Transit Challan", [{**fci_row("9", "15-05-2026", "300"), "Weight After Moisture Cut": "1"}])
+		_columns, data, _message = execute(dict(FILTERS))
+		self.assertEqual(data[0]["fci_total"], round(287.41811 + 300, 2))  # May: Net Weight of both rows
+

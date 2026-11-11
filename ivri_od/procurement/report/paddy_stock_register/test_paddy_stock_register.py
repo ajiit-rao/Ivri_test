@@ -134,3 +134,57 @@ class TestNoSeasonStartDate(IntegrationTestCase):
 		self.assertEqual(rows[0].prog_receipt_pacs, 75772.41 + 999)
 		self.assertEqual(rows[0].ob, 23534.02 + 999)
 		self.assertEqual(rows[0].mismatch, 0)
+
+
+class TestSeasonFilter(IntegrationTestCase):
+	"""Season Both / Kharif / Rabi and the days shown (shared with Rice Stock Register)."""
+
+	def test_season_values(self):
+		import frappe
+		from unittest.mock import patch
+
+		from ivri_od.procurement import stock_register
+
+		season = frappe._dict(names=["Kharif 2025"], start_date=None, end_date=None)
+		with (
+			patch("frappe.db.get_value", return_value="_Test Company"),
+			patch.object(stock_register, "get_seasons", return_value=season) as get_seasons,
+		):
+			base = dict(mill="MILL", kms_year="25-26")
+			filters = frappe._dict(base)  # empty: Both
+			stock_register.validate_filters(filters, district_required=False)
+			self.assertEqual((filters.season, filters.crop_season), ("Both", None))
+			get_seasons.assert_called_with("25-26", None)
+			filters = frappe._dict(base, season="Rabi")
+			stock_register.validate_filters(filters, district_required=False)
+			self.assertEqual(filters.crop_season, "Rabi")
+			self.assertRaises(
+				frappe.ValidationError, stock_register.validate_filters, frappe._dict(base, season="Summer"), False
+			)
+
+	def test_season_matches(self):
+		from ivri_od.procurement.stock_register import season_matches
+
+		self.assertTrue(season_matches(" KHARIF ", "Kharif"))
+		self.assertFalse(season_matches("RABI", "Kharif"))
+		self.assertTrue(season_matches("RABI", None))  # Both
+		self.assertFalse(season_matches("", None))  # no Season: never counted
+
+	def test_period(self):
+		import frappe
+		from frappe.utils import add_days
+
+		from ivri_od.procurement.stock_register import set_period
+
+		filters = frappe._dict()
+		# No Season Master dates: first to last day with data.
+		set_period(filters, frappe._dict(start_date=None, end_date=None), MOVEMENTS)
+		self.assertEqual((filters.from_date, filters.to_date), (getdate("2025-09-30"), getdate("2025-12-03")))
+		# Season Master dates win.
+		season = frappe._dict(start_date=getdate("2025-10-01"), end_date=getdate("2026-03-31"))
+		set_period(filters, season, MOVEMENTS)
+		self.assertEqual((filters.from_date, filters.to_date), (getdate("2025-10-01"), getdate("2026-03-31")))
+		# Season still running: not past today.
+		today = getdate()
+		set_period(filters, frappe._dict(start_date=add_days(today, -5), end_date=add_days(today, 100)), [])
+		self.assertEqual((filters.from_date, filters.to_date), (add_days(today, -5), today))

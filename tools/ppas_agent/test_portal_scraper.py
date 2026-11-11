@@ -469,3 +469,29 @@ class TestMergedCells(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestAutoClicks(unittest.TestCase):
+    def test_targets_of_the_page(self):
+        from portal_scraper import auto_clicks_for
+
+        config = [
+            {"page_match": "MillerRqPDS", "targets": '//*[@id="dvmillerhistory"]/a/i[1], #btnOpen', "table_match": "tabledata"},
+            {"page_match": "ViewDC", "targets": "#other", "table_match": "Some Title"},
+        ]
+        url = "https://portal.pdsodisha.gov.in/DeliveryCertificate/MillerRqPDS/Add"
+        self.assertEqual(
+            auto_clicks_for(config, url), (['//*[@id="dvmillerhistory"]/a/i[1]', "#btnOpen"], ["tabledata"])
+        )
+        # A Table Match that is a title (spaces), not an id, is not used to check the table.
+        self.assertEqual(auto_clicks_for(config, "https://x/DeliveryCertificate/ViewDC"), (["#other"], []))
+        self.assertEqual(auto_clicks_for(config, "https://x/MillerRoPDS/Add"), ([], []))
+        self.assertEqual(auto_clicks_for(None, url), ([], []))
+
+    def test_xpath_commas_stay_together(self):
+        from portal_scraper import _split_targets
+
+        self.assertEqual(
+            _split_targets("//div[contains(@class, 'a')]/i[1], #b"), ["//div[contains(@class, 'a')]/i[1]", "#b"]
+        )
+

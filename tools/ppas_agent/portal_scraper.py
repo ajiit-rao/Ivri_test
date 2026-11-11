@@ -74,6 +74,43 @@ SKIP_LINK_PATTERN = re.compile(
 # BROWSER SCRIPTS
 # ============================================================
 
+# Clicks the section's "Auto Click Before Read" elements (e.g. DCRO Requisition for DC:
+# //*[@id="dvmillerhistory"]/a/i[1], the + that opens the table) before the table is read.
+# arguments[0]: [XPath or #id / id]; arguments[1]: [table ids] (Table Match): when one of them
+# is shown with rows the panel is open already and nothing is clicked (a second click on a
+# + / - toggle would close it). An element is clicked only when shown. The click is not
+# taken as the user's Search click (__pde_agent_busy). Returns the number of clicks.
+JS_AUTO_CLICK = r"""
+var targets = arguments[0] || [], tables = arguments[1] || [];
+var shown = function (el) { return !!el && !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length); };
+for (var t = 0; t < tables.length; t++) {
+    var table = document.getElementById(tables[t]);
+    if (shown(table) && table.querySelectorAll('tr td').length) { return 0; }
+}
+var clicked = 0;
+try { sessionStorage.setItem('__pde_agent_busy', '1'); } catch (e) {}
+try {
+    for (var i = 0; i < targets.length; i++) {
+        var target = (targets[i] || '').trim(), el = null;
+        try {
+            if (/^[\/(]/.test(target)) {
+                el = document.evaluate(target, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+            } else if (target) {
+                el = document.getElementById(target.replace(/^#/, ''));
+            }
+        } catch (e) { el = null; }
+        if (!shown(el)) { continue; }
+        // An icon (e.g. <i> inside <a>) has no click of its own: click its link or button.
+        var clickable = el.closest ? (el.closest('a,button,input') || el) : el;
+        clickable.click();
+        clicked++;
+    }
+} finally {
+    try { sessionStorage.removeItem('__pde_agent_busy'); } catch (e) {}
+}
+return clicked;
+"""
+
 # Marks a click on a Search-like button. sessionStorage survives the full
 # page reload of an ASP.NET postback, so the click is not lost.
 # arguments[0]: the section's "Extract On Click" texts for this page (letters and
@@ -1225,6 +1262,43 @@ def click_triggers_for(click_triggers, url):
     return out
 
 
+def auto_clicks_for(auto_clicks, url):
+    """(targets, table ids) of the "Auto Click Before Read" of the page at ``url``: XPaths or
+    ids clicked by the agent before reading (e.g. DCRO Requisition for DC: the + of
+    dvmillerhistory), and the Table Match ids that show the panel is open already.
+    An XPath may hold commas only inside brackets; targets are split on the other commas."""
+    url = (url or "").lower()
+    targets, tables = [], []
+    for item in auto_clicks or []:
+        match = (item.get("page_match") or "").strip().lower()
+        if not (match and match in url):
+            continue
+        for target in _split_targets(item.get("targets") or ""):
+            if target not in targets:
+                targets.append(target)
+        table = (item.get("table_match") or "").strip()
+        if table and re.fullmatch(r"[\w:.-]+", table) and table not in tables:
+            tables.append(table)
+    return targets, tables
+
+
+def _split_targets(text):
+    """Split "a, //*[@id='x']/a/i[1], #b" on commas outside [] and ()."""
+    out, depth, part = [], 0, ""
+    for char in str(text):
+        if char in "[(":
+            depth += 1
+        elif char in "])":
+            depth = max(depth - 1, 0)
+        if char == "," and not depth:
+            out.append(part.strip())
+            part = ""
+        else:
+            part += char
+    out.append(part.strip())
+    return [t for t in out if t]
+
+
 def trigger_hint(click_triggers, url):
     """What the user does on the page at ``url`` to start a read, from its "Extract On
     Click" texts: a search box id (DCRO DC Transit Challan, gvDCDetails_filter) is
@@ -1468,6 +1542,8 @@ class PortalSession:
         self.receipt_links = config.get("receipt_links") or []
         self.grid_matches = config.get("grid_matches") or []
         self.click_triggers = config.get("click_triggers") or []
+        # Elements clicked by the agent before reading (e.g. the + of DCRO Requisition for DC).
+        self.auto_clicks = config.get("auto_clicks") or []
         # Pages read as soon as they open, without a Search click (e.g. WINGS e_tec).
         self.open_reads = config.get("open_reads") or []
         # Elements read by id on a page, besides its search filters (e.g. #INTKMS).
@@ -1849,6 +1925,19 @@ class PortalSession:
 
     # ---------------- extraction ----------------
 
+    def _auto_click(self):
+        """Click the page's "Auto Click Before Read" elements (e.g. the + that opens the table)
+        once the page is loaded; nothing when the page has none or the table is open already."""
+        targets, tables = auto_clicks_for(self.auto_clicks, self.driver.current_url)
+        if not targets:
+            return
+        self._wait_ready(PAGE_WAIT_SECONDS)
+        try:
+            if self.driver.execute_script(JS_AUTO_CLICK, targets, tables):
+                time.sleep(1)  # let the panel open (and its table fill) before looking for it
+        except Exception:
+            pass
+
     def _wait_ready(self, timeout):
         end = time.time() + timeout
         while time.time() < end and not self.stop_event.is_set():
@@ -1912,6 +2001,7 @@ class PortalSession:
         self._grid_header = None
         self._only_table = None
         self._set("extracting", f"{trigger} detected. Waiting for the result table...")
+        self._auto_click()
         signature = self._wait_for_grid(RESULT_WAIT_SECONDS)
         if not signature:
             self._set("watching", f"No result table found after {trigger}. Click Search again on the portal page.")

@@ -57,7 +57,7 @@
 	<div class="heading">{%= frappe.utils.escape_html((filters.company || "").toUpperCase()) %}</div>
 	<div class="heading">
 		STOCK ACCOUNT OF PADDY FOR KMS {%= frappe.utils.escape_html(kms_label) %}
-		({%= frappe.utils.escape_html((filters.paddy_account || "").toUpperCase()) %} A/C)
+		({%= frappe.utils.escape_html((filters.paddy_account || "").toUpperCase()) %} A/C){% if (filters.season && filters.season !== "Both") { %} - {%= frappe.utils.escape_html(filters.season.toUpperCase()) %}{% } %}
 	</div>
 
 	<table class="statement">

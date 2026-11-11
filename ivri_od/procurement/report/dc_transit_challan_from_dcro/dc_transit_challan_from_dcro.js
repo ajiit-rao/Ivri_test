@@ -2,9 +2,10 @@
 
 // Filters, links and "Portal View" are shared: public/js/portal_detail_table.bundle.js.
 // Details and AC Note Doc columns download the files saved from those buttons.
-// season_filter: Mill and Season filters on top; Season keeps the DCs View DC from DCRO shows with it.
+// dcro_filters: Mill Name, KMS Year, Season (Both / Kharif / Rabi), District, as on every DCRO Details
+// report; Season and District keep the DCs View DC from DCRO shows with them.
 // edit_ac_note_values: rows whose AC Note gives no Date of Acceptance get their Accepted Date and Net Weight by hand.
 frappe.query_reports["DC Transit Challan from DCRO"] = ivri_od.portal.section_report_settings({
 	edit_ac_note_values: true,
-	season_filter: true,
+	dcro_filters: true,
 });

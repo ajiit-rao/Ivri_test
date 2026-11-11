@@ -7,6 +7,9 @@ frappe.provide("ivri_od.dc_details");
 
 const DC_DETAILS_HIGHLIGHT = ["fci_balance", "fci_pending", "rrc_balance", "rrc_pending", "vr_pending"];
 
+// Clickable pending columns: fieldname -> kind sent to get_pending_lots.
+const DC_DETAILS_PENDING = { fci_pending: "fci", rrc_pending: "rrc" };
+
 frappe.query_reports["DC Details"] = {
 	filters: [
 		{ fieldname: "season", label: __("Season"), fieldtype: "Link", options: "Season Master", reqd: 1 },
@@ -29,8 +32,62 @@ frappe.query_reports["DC Details"] = {
 		if (DC_DETAILS_HIGHLIGHT.includes(column.fieldname) && data[column.fieldname] > 0) {
 			value = `<span class="indicator-pill yellow">${value}</span>`;
 		}
+		// FCI / RRC Pending: a click opens the pending lots (Total line: every mill).
+		if (DC_DETAILS_PENDING[column.fieldname] && data[column.fieldname] > 0) {
+			const kind = DC_DETAILS_PENDING[column.fieldname];
+			const mill = data.is_total_row ? "" : frappe.utils.escape_html(data.mill || "");
+			value = `<a href="#" title="${__("Show pending lots")}"
+				onclick="ivri_od.dc_details.show_pending('${kind}', '${mill}'); return false;">${value}</a>`;
+		}
 		return data.is_total_row ? `<b>${value}</b>` : value;
 	},
+};
+
+// Pending lots of one mill (or every mill when mill is ""), as counted in FCI / RRC Pending:
+// FCI - DCRO DC Transit Challan rows not Approved and with no Accepted Date;
+// RRC - SCMS Transit Challan RRC lots not in SCMS Lot Search yet. See get_pending_lots in dc_details.py.
+ivri_od.dc_details.show_pending = function (kind, mill) {
+	const report = frappe.query_report;
+	frappe
+		.xcall("ivri_od.procurement.report.dc_details.dc_details.get_pending_lots", {
+			season: report.get_filter_value("season"),
+			kind,
+			mill: mill || null,
+			district: report.get_filter_value("district") || null,
+		})
+		.then((r) => {
+			const esc = frappe.utils.escape_html;
+			const headers = [];
+			r.lots.forEach((lot) => Object.keys(lot.cells).forEach((h) => !headers.includes(h) && headers.push(h)));
+			const body = r.lots
+				.map(
+					(lot) => `<tr>
+						<td>${esc(lot.mill)}</td><td>${esc(lot.dc_no)}</td><td>${esc(lot.lot_no)}</td>
+						${headers.map((h) => `<td>${esc(lot.cells[h] || "")}</td>`).join("")}
+					</tr>`
+				)
+				.join("");
+			const html = `
+				<p>${__("Source")}: <b>${esc(r.source)}</b> &nbsp; ${__("Pending Lots")}: <b>${r.lots.length}</b></p>
+				<div style="overflow-x: auto">
+					<table class="table table-bordered table-sm">
+						<thead><tr>
+							<th>${__("Mill No.")}</th><th>${__("DC No.")}</th><th>${__("Lot No.")}</th>
+							${headers.map((h) => `<th>${esc(h)}</th>`).join("")}
+						</tr></thead>
+						<tbody>${body || `<tr><td colspan="3" class="text-muted">${__("No pending lots")}</td></tr>`}</tbody>
+					</table>
+				</div>`;
+			const dialog = new frappe.ui.Dialog({
+				title: mill
+					? __("{0} Pending Lots of {1}", [r.kind, mill])
+					: __("{0} Pending Lots of All Mills", [r.kind]),
+				size: "extra-large",
+				fields: [{ fieldtype: "HTML", fieldname: "lots" }],
+			});
+			dialog.fields_dict.lots.$wrapper.html(html);
+			dialog.show();
+		});
 };
 
 // ---------------------------------------------------------------

@@ -31,6 +31,7 @@ STANDARD_REPORTS: tuple[tuple[str, str], ...] = (
 	("lot_search_from_scms", "lot_search_from_scms.json"),
 	("paddy_release_from_dcro", "paddy_release_from_dcro.json"),
 	("view_dc_from_dcro", "view_dc_from_dcro.json"),
+	("requisition_for_dc_from_dcro", "requisition_for_dc_from_dcro.json"),
 	("dc_transit_challan_from_dcro", "dc_transit_challan_from_dcro.json"),
 	("dc_track", "dc_track.json"),
 	("dc_details", "dc_details.json"),

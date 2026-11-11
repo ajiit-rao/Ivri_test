@@ -20,6 +20,28 @@ frappe.query_reports["DC Track"] = {
 	collapsible_filters: true,
 	filters: [
 		{ fieldname: "mill_id", label: __("Mill No."), fieldtype: "Link", options: "Mill Master" },
+		{
+			fieldname: "district",
+			label: __("District"),
+			fieldtype: "Link",
+			options: "District Master",
+			get_query: () => ({ filters: { is_active: 1 } }),
+			description: __("District of the DC in View DC from DCRO. Empty: every district."),
+		},
+		{
+			// Options from Season Master (onload), newest first. Empty: every KMS Year.
+			fieldname: "kms_year",
+			label: __("KMS Year"),
+			fieldtype: "Select",
+		},
+		{
+			fieldname: "season",
+			label: __("Season"),
+			fieldtype: "Select",
+			options: "Both\nKharif\nRabi",
+			default: "Both",
+			description: __("Both: every DC. Kharif / Rabi: Season of the DC in View DC."),
+		},
 		{ fieldname: "dc_no", label: __("DC No."), fieldtype: "Data" },
 		{ fieldname: "from_date", label: __("DC Date From"), fieldtype: "Date" },
 		{ fieldname: "to_date", label: __("DC Date To"), fieldtype: "Date" },
@@ -31,6 +53,16 @@ frappe.query_reports["DC Track"] = {
 			options: ["", ...Object.keys(DC_TRACK_COLOURS)].join("\n"),
 		},
 	],
+	onload(report) {
+		// KMS Years from Season Master, newest first ("25-26" = Kharif 2025 and Rabi 2025).
+		return frappe
+			.call("ivri_od.procurement.report.stock_account_for_paddy.stock_account_for_paddy.get_kms_years")
+			.then((r) => {
+				const filter = report.get_filter("kms_year");
+				filter.df.options = ["", ...(r.message || [])];
+				filter.refresh();
+			});
+	},
 	// Charts above the table, drawn from the report rows: they follow every filter change.
 	after_refresh(report) {
 		ivri_od.dc_track.render_charts(report);

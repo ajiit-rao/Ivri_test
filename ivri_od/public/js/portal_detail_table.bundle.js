@@ -183,7 +183,7 @@ ivri_od.portal.edit_ac_note_values = function (record) {
 				fieldtype: "Float",
 				precision: 5,
 				default: row.net_weight_manual || "",
-				description: __("Empty: the Net Quantity of If FCI AC Not Available."),
+				description: __("Empty: 0 until the AC Note gives the weight."),
 			},
 			{ fieldname: "read_status", fieldtype: "HTML" },
 		],
@@ -252,7 +252,22 @@ ivri_od.portal.fill_from_ac_note = function (dialog) {
 // opts.edit_ac_note_values: on a row without an AC Note date, the "Accepted Date" and "Net Weight"
 // cells (and an attach button in "AC Note Doc"), after pressing Edit on top, open the same
 // pop-up (DC Transit Challan; see edit_ac_note_values). AC Note values cannot be edited.
-// opts.season_filter: "Mill" and "Season" (Kharif / Rabi) filters first (DC Transit Challan).
+// opts.season_filter: "Mill" and "Season" (Kharif / Rabi) filters first.
+// opts.dcro_filters: the DCRO Details reports' filters first, the same on each: Mill Name,
+// KMS Year (Season Master years, empty = all), Season (Both / Kharif / Rabi) and District
+// (empty = all); see procurement/dcro_filters.py. No Seen From / Seen To / Search Text.
+// KMS Years of Season Master, newest first ("25-26"); "" first = every year.
+ivri_od.portal.load_kms_years = function (report) {
+	return frappe
+		.call("ivri_od.procurement.report.stock_account_for_paddy.stock_account_for_paddy.get_kms_years")
+		.then((r) => {
+			const filter = report.get_filter("kms_year");
+			if (!filter) return;
+			filter.df.options = ["", ...(r.message || [])];
+			filter.refresh();
+		});
+};
+
 ivri_od.portal.section_report_settings = function (opts = {}) {
 	const filters = [
 		{ fieldname: "from_date", label: __("Seen From"), fieldtype: "Date" },
@@ -273,6 +288,32 @@ ivri_od.portal.section_report_settings = function (opts = {}) {
 			{ fieldname: "season", label: __("Season"), fieldtype: "Select", options: "\nKharif\nRabi" }
 		);
 	}
+	if (opts.dcro_filters) {
+		// Seen From / Seen To and Search Text are not used on the DCRO reports.
+		const others = filters.filter((f) => !["mill_id", "from_date", "to_date", "search"].includes(f.fieldname));
+		filters.length = 0;
+		filters.push(
+			{ fieldname: "mill_id", label: __("Mill Name"), fieldtype: "Link", options: "Mill Master" },
+			{ fieldname: "kms_year", label: __("KMS Year"), fieldtype: "Select", description: __("Empty: all years") },
+			{
+				fieldname: "season",
+				label: __("Season"),
+				fieldtype: "Select",
+				options: "Both\nKharif\nRabi",
+				default: "Both",
+			},
+			{
+				fieldname: "district",
+				label: __("District"),
+				fieldtype: "Link",
+				options: "District Master",
+				get_query: () => ({ filters: { is_active: 1 } }),
+				description: __("Empty: all districts"),
+			},
+			...(opts.extra_filters || []),
+			...others
+		);
+	}
 	if (opts.details) {
 		filters.push({ fieldname: "show_details", label: __("Show Detail Rows (Lots)"), fieldtype: "Check" });
 	}
@@ -284,6 +325,9 @@ ivri_od.portal.section_report_settings = function (opts = {}) {
 
 		onload(report) {
 			report.page.add_inner_button(__("Portal View"), () => ivri_od.portal.show_report_as_portal(report));
+			if (opts.dcro_filters) {
+				ivri_od.portal.load_kms_years(report);
+			}
 			// Edit on top (public/js/report_edit.js): only then the cells below can be edited.
 			const editable = [
 				...(opts.edit_district ? [__("District")] : []),

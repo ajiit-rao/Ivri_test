@@ -4,7 +4,9 @@ issue for milling, total disposal and CB, in Quintal (2 decimals).
 
 Filters, season dates and the day-wise loop are shared with Rice Stock Register
 (ivri_od/procurement/stock_register.py). "Prog." columns count from the season Start Date.
-All data is of the Mill, the District (filter) and the Season (Kharif / Rabi of the KMS Year).
+All data is of the Mill, the District (filter) and the Season (Kharif / Rabi of the KMS Year;
+Both = the two together). No From / To Date: the days are the Season Master Start - End Date
+(not past today), else the first to the last day with data.
 District blank = all districts (every Transit Pass, DCRO district column and PVR row of the mill).
 
 Data sources:
@@ -73,6 +75,7 @@ def execute(filters=None):
 		+ get_release_orders(filters, filters.to_date)
 		+ get_issue_for_milling(filters, filters.to_date)
 	)
+	stock_register.set_period(filters, season, movements)
 	data = build_rows(season.start_date, filters.from_date, filters.to_date, 0, movements)
 
 	title = stock_register.get_title("PADDY STOCK REGISTER", filters)
@@ -116,11 +119,11 @@ def get_columns():
 
 
 def get_transit_passes(filters, season):
-	"""(passes, skipped): Transit Passes of the mill and Season up to To Date with the PPC in the
+	"""(passes, skipped): Transit Passes of the mill and Season(s) up to To Date with the PPC in the
 	District; skipped = passes of the mill whose PPC is not in PPC Master or has no District.
 	Without a District: every pass of the mill and Season, nothing skipped."""
 	passes, skipped = [], []
-	for row in mill_transit_passes(filters.mill, [season.name], filters.to_date):
+	for row in mill_transit_passes(filters.mill, season.names, filters.to_date):
 		if not filters.district:
 			passes.append(row)
 		elif not row.district:
@@ -144,8 +147,8 @@ def tp_receipts(passes):
 
 def get_release_orders(filters, to_date):
 	"""(Date of Requistion, RELEASE_ORDER, qty) of the DCRO Paddy Release rows of the mill, KMS Year
-	and Season: only the District's Paddy Released (all districts' when no District).
-	Rows without KMS Year / Season are not counted."""
+	and Season (Kharif and Rabi for Both): only the District's Paddy Released (all districts' when
+	no District). Rows without KMS Year / Season are not counted."""
 	year = cint(season_master_year(filters.kms_year))
 	skip_status = [word.lower() for word in DCRO_BALANCE["skip_status"]]
 	own_district = frappe.db.get_value("Mill Master", filters.mill, "district")
@@ -161,7 +164,7 @@ def get_release_orders(filters, to_date):
 		cells = _load(record.row_data)
 		if dcro_kms_year(cells.get(DCRO_KMS_COLUMN)) != year:
 			continue
-		if (cells.get(DCRO_SEASON_COLUMN) or "").strip().casefold() != filters.season.casefold():
+		if not stock_register.season_matches(cells.get(DCRO_SEASON_COLUMN), filters.get("crop_season")):
 			continue
 		release = dcro_release(cells, skip_status, filters.district, own_district, districts)
 		if release and release[0] <= to_date and release[2]:
@@ -189,8 +192,10 @@ def get_issue_for_milling(filters, to_date):
 		& (row.paddy_milled_week > 0)
 		& (pvr.present_verification_date.isnotnull())
 	)
-	if filters.get("season"):
-		condition &= row.season == filters.season
+	# "Both" (the registers' filter) or blank: both seasons.
+	season = filters.get("crop_season") or filters.get("season")
+	if season and season != stock_register.BOTH_SEASONS:
+		condition &= row.season == season
 	if filters.district:
 		condition &= row.district == filters.district
 	records = (

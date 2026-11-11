@@ -1,13 +1,18 @@
 # Copyright (c) 2026, Profezzo and contributors
 """Rice Stock Report: monthly OB, rice received from milling, rice delivered to FCI and RRC, and CB.
 
-Filters: Mill Name, KMS Year, From / To Month, District (optional).
+Filters: Mill Name, KMS Year, Season (Both / Kharif / Rabi), District (optional).
+No From / To Month: the months shown are the Season Master Start Date - End Date of the chosen
+season(s), else (dates not set) the first to the last month with data (as in Stock Account for Paddy).
+Season: Rice Received is the Issue for Milling of that season only; FCI / RRC deliveries only of the
+DCs whose Season in DCRO "View DC" is that season. Both: every row of the KMS Year.
 - Rice Received from Milling: the Paddy Stock Register's Issue for Milling (date-wise) of the mill
   and KMS Year (every district, or only the District), summed by month, times the Rice Percentage
   (CMR %) of Rice Delivery Setup for the mill's Type in Mill Master (Raw / Boiled).
   (Until 2026-11-04 it was the DCRO paddy released for milling.)
-- FCI Delivery: DCRO "DC Transit Challan" rows of the mill and KMS Year, Net Weight by Accepted
-  Date month (both read from the row's AC Note), one column per depot ("Depot Code-Depot Name").
+- FCI Delivery: DCRO "DC Transit Challan" rows of the mill and KMS Year, "Net Weight" column (the
+  AC Note's Purchase Weight; not Weight After Moisture Cut) by Accepted Date month (both read from
+  the row's AC Note), one column per depot ("Depot Code-Depot Name").
 - RRC Delivery: SCMS "Lot Search" rows of the mill and KMS Year, Qty by Receipt Date month,
   one column per Depot.
 Depot columns: every depot of the mill and KMS Year, also when the District filter leaves it at 0.
@@ -23,22 +28,30 @@ from collections import defaultdict
 
 import frappe
 from frappe import _
-from frappe.utils import flt, get_first_day, get_last_day, getdate
+from frappe.utils import flt
 
 from ivri_od.procurement.portal_report import _load, _number
 from ivri_od.procurement.portal_sync import (
 	ACCEPTED_DATE_COLUMN,
 	DISTRICT_COLUMN,
 	MOISTURE_CUT_COLUMN,
+	NET_WEIGHT_COLUMN,
 	NO_DISTRICT,
 	_match_key,
 )
+from ivri_od.procurement.report.dc_track.dc_track import _cell
 from ivri_od.procurement.report.stock_account_for_paddy.stock_account_for_paddy import (
+	BOTH_SEASONS,
+	CROP_SEASONS,
+	NO_END,
 	dcro_kms_year,
 	get_issue_for_milling,
+	get_kms_season_masters,
 	get_months,
 	parse_portal_date,
 	season_master_year,
+	season_period,
+	statement_period,
 )
 
 PRECISION = 2
@@ -60,41 +73,54 @@ VIEW_DC_NO = "DC Code(RRC)"
 
 def execute(filters=None):
 	filters = frappe._dict(filters or {})
-	from_date, to_date = validate_filters(filters)
+	crop_season = validate_filters(filters)
 	year = int(season_master_year(filters.kms_year))
 
+	start, end = season_period(get_kms_season_masters(filters.kms_year, crop_season))
+	to_date = end or NO_END
+
 	rice_percentage = get_rice_percentage(filters.mill)
-	received = get_rice_received(filters.mill, filters.kms_year, to_date, rice_percentage, filters.district)
+	received = get_rice_received(
+		filters.mill, filters.kms_year, to_date, rice_percentage, filters.district, crop_season
+	)
 	dc_numbers, dcs_without_district = get_district_dcs(filters.mill, filters.district)
+	season_dcs, dcs_without_season = get_season_dcs(filters.mill, crop_season)
 	fci, fci_without_date, fci_depots = get_deliveries(
-		"DCRO", FCI_SECTION, filters.mill, year, to_date, fci_delivery, dc_numbers, FCI_DC_NO
+		"DCRO", FCI_SECTION, filters.mill, year, to_date, fci_net_weight_delivery, dc_numbers, FCI_DC_NO,
+		season_dcs=season_dcs,
 	)
 	rrc, rrc_without_date, rrc_depots = get_deliveries(
 		"SCMS", RRC_SECTION, filters.mill, year, to_date, rrc_delivery, dc_numbers, RRC_DC_NO,
-		filters.district, RRC_DISTRICT,
+		filters.district, RRC_DISTRICT, season_dcs=season_dcs,
 	)
+
+	# Months: Season Master dates, else the first to the last month with data.
+	movements = received + [(when, None) for when, _depot, _qty in fci + rrc]
+	from_date, to_date = statement_period(start, end, movements)
 
 	columns = get_columns(fci_depots, rrc_depots)
 	data = build_rows(get_months(from_date, to_date), from_date, received, fci, rrc, fci_depots, rrc_depots)
-	return columns, data, get_message(fci_without_date, rrc_without_date, filters, dcs_without_district)
+	return columns, data, get_message(
+		fci_without_date, rrc_without_date, filters, dcs_without_district, dcs_without_season
+	)
 
 
 def validate_filters(filters):
+	"""Mill and KMS Year are needed; no dates. Returns the crop season ("Kharif" / "Rabi"), or None
+	for Both. Sets filters.company (printed in the heading)."""
 	for fieldname, label in (
 		("mill", _("Mill Name")),
 		("kms_year", _("KMS Year")),
-		("from_month", _("From Month")),
-		("to_month", _("To Month")),
 	):
 		if not filters.get(fieldname):
 			frappe.throw(_("{0} is mandatory").format(label))
+	season = (filters.get("season") or BOTH_SEASONS).strip()
+	if season not in (BOTH_SEASONS, *CROP_SEASONS):
+		frappe.throw(_("Season must be Both, Kharif or Rabi"))
+	filters.season = season
 
 	filters.company = frappe.db.get_value("Mill Master", filters.mill, "company")
-	from_date = getdate(get_first_day(filters.from_month))
-	to_date = getdate(get_last_day(filters.to_month))
-	if from_date > to_date:
-		frappe.throw(_("From Month must be before To Month"))
-	return from_date, to_date
+	return None if season == BOTH_SEASONS else season
 
 
 def get_rice_percentage(mill):
@@ -126,13 +152,14 @@ def _rows(site, section, mill, year):
 			yield cells
 
 
-def get_rice_received(mill, kms_year, to_date, rice_percentage, district=None):
+def get_rice_received(mill, kms_year, to_date, rice_percentage, district=None, crop_season=None):
 	"""[(date, rice qty)]: Paddy Stock Register's Issue for Milling of the mill and KMS Year
-	(every district, or only ``district``) times the rice percentage."""
+	(every district, or only ``district``; both seasons, or only ``crop_season``) times the rice
+	percentage."""
 	register_filters = frappe._dict(mill=mill, kms_year=kms_year, paddy_account=district or None)
 	return [
 		(issue_date, qty * rice_percentage / 100)
-		for issue_date, _column, qty in get_issue_for_milling(register_filters, to_date)
+		for issue_date, _column, qty in get_issue_for_milling(register_filters, to_date, crop_season=crop_season)
 		if issue_date <= to_date
 	]
 
@@ -159,14 +186,40 @@ def get_district_dcs(mill, district):
 	return dc_numbers, without_district
 
 
+def get_season_dcs(mill, crop_season):
+	"""(DC numbers of the mill whose Season in DCRO View DC is ``crop_season``, View DC rows of the
+	mill without a Season); (None, 0) for Both seasons."""
+	if not crop_season:
+		return None, 0
+	dc_numbers, without_season = set(), 0
+	for record in frappe.get_all(
+		"Portal Record",
+		filters={"site": "DCRO", "section": VIEW_DC_SECTION, "mill_id": mill},
+		fields=["row_data"],
+		limit_page_length=0,
+	):
+		cells = _load(record.row_data)
+		dc_no = (cells.get(VIEW_DC_NO) or "").strip()
+		if not dc_no:
+			continue
+		row_season = _cell(cells, ["season"])
+		if not row_season:
+			without_season += 1
+		elif row_season.casefold() == crop_season.casefold():
+			dc_numbers.add(_dc_key(dc_no))
+	return dc_numbers, without_season
+
+
 def _dc_key(value):
 	return "".join((value or "").split()).upper()
 
 
 def get_deliveries(
-	site, section, mill, year, to_date, read_row, dc_numbers=None, dc_column=None, district=None, district_column=None
+	site, section, mill, year, to_date, read_row, dc_numbers=None, dc_column=None, district=None, district_column=None,
+	season_dcs=None,
 ):
 	"""([(date, depot, qty)], rows without a date, depots): rows of the section read by ``read_row``.
+	With ``season_dcs`` (Kharif / Rabi): only rows whose ``dc_column`` is one of those DCs.
 	With ``dc_numbers`` (District filter): only rows of the District: by the row's own
 	``district_column`` when it has one (matched ignoring capitals and spaces), else by its
 	``dc_column`` being one of ``dc_numbers``.
@@ -177,6 +230,8 @@ def get_deliveries(
 			continue
 		delivery = read_row(cells)
 		depots.add(delivery[1])
+		if season_dcs is not None and _dc_key(cells.get(dc_column)) not in season_dcs:
+			continue
 		if dc_numbers is not None and not _in_district(cells, dc_numbers, dc_column, district, district_column):
 			continue
 		if not delivery[0]:
@@ -199,6 +254,14 @@ def fci_delivery(cells):
 	code, name = (cells.get(FCI_DEPOT_CODE) or "").strip(), (cells.get(FCI_DEPOT_NAME) or "").strip()
 	depot = "-".join(part for part in (code, name) if part) or _("No Depot")
 	return parse_portal_date(cells.get(ACCEPTED_DATE_COLUMN)), depot, flt(_number(cells.get(MOISTURE_CUT_COLUMN)))
+
+
+def fci_net_weight_delivery(cells):
+	"""Rice Stock Report's FCI Delivery: as fci_delivery, but the "Net Weight" column of the DC Transit
+	Challan row (the AC Note's Purchase Weight), not Weight After Moisture Cut. fci_delivery stays as
+	it is for Rice Stock Register and Miller Verification Report."""
+	when, depot, _after_moisture_cut = fci_delivery(cells)
+	return when, depot, flt(_number(cells.get(NET_WEIGHT_COLUMN)))
 
 
 def rrc_delivery(cells):
@@ -274,9 +337,16 @@ def set_totals(row, fci_count, rrc_count):
 	row["cb"] = flt(row["total"] - row["total_delivery"], PRECISION)
 
 
-def get_message(fci_without_date, rrc_without_date, filters=None, dcs_without_district=0):
+def get_message(fci_without_date, rrc_without_date, filters=None, dcs_without_district=0, dcs_without_season=0):
 	messages = []
 	filters = filters or frappe._dict()
+	if dcs_without_season:
+		messages.append(
+			_(
+				"{0} DCs of mill {1} in View DC from DCRO have no Season, so their FCI / RRC deliveries "
+				"are not counted for {2}."
+			).format(dcs_without_season, filters.mill, filters.season)
+		)
 	if dcs_without_district:
 		messages.append(
 			_(

@@ -146,9 +146,9 @@ def fix_section_cells(section: str, cells: dict[str, str]) -> dict[str, str]:
 # - "Weight After Moisture Cut": the AC Note's own "Net Weight : 287.41811" (after the Value Cut).
 # - "Accepted Date" ("Date of Acceptance 11-May-2026" saved as 11-05-2026) and "Moisture"
 #   ("Moisture Value 14.80000"; blank without an AC Note, never set by hand).
-# Without an AC Note (no file, a scanned image, or no weights on it) both weights show the Net
-# Quantity of "If FCI AC Not Available" and Accepted Date stays blank, unless they were set by hand
-# in the report (portal_manual.set_ac_note_values); the AC Note's values always come first.
+# Without an AC Note (no file, a scanned image, or no weights on it) both weights are 0 and Accepted
+# Date stays blank, unless they were set by hand in the report (portal_manual.set_ac_note_values);
+# the AC Note's values always come first. No assumed weight is used.
 # {(site, section): document label}. The columns are not part of the record key.
 ACCEPTANCE_NOTE_COLUMN = "Acceptance Note No"
 NET_WEIGHT_COLUMN = "Net Weight"
@@ -157,8 +157,11 @@ ACCEPTED_DATE_COLUMN = "Accepted Date"
 MOISTURE_COLUMN = "Moisture"
 NET_WEIGHT_SECTIONS = {("DCRO", "DC Transit Challan"): "AC Note Doc"}
 AC_NOTE_COLUMNS = (ACCEPTANCE_NOTE_COLUMN, NET_WEIGHT_COLUMN, MOISTURE_CUT_COLUMN, ACCEPTED_DATE_COLUMN, MOISTURE_COLUMN)
+# Kept only for the older patch dc_transit_challan_net_weight; no longer used as a weight.
 NET_WEIGHT_MASTER = "If FCI AC Not Available"
 DEFAULT_NET_QUANTITY = 287.5
+# Weight shown when there is no AC Note and none was set by hand (portal format).
+NO_AC_NOTE_WEIGHT = "0.00000"
 # The AC Note's "Net Weight : 287.41811": saved as Weight After Moisture Cut.
 NET_WEIGHT_TEXT = re.compile(r"Net\s*Weight\s*:?\s*(\d[\d,]*(?:\.\d+)?)", re.IGNORECASE)
 PURCHASE_WEIGHT_TEXT = re.compile(
@@ -228,18 +231,12 @@ def _accepted_date_in(text: str) -> str:
 	return ""
 
 
-def default_net_weight() -> str:
-	"""Net Quantity of "If FCI AC Not Available", same format as the portal ("287.50000")."""
-	value = flt(frappe.db.get_single_value(NET_WEIGHT_MASTER, "net_quantity")) or DEFAULT_NET_QUANTITY
-	return f"{value:.5f}"
-
-
 def add_net_weight(site: str, section: str, cells: dict[str, str], row: dict, record_name: str) -> dict[str, str]:
 	"""Add the Acceptance Note No, Net Weight, Weight After Moisture Cut, Accepted Date and Moisture
 	columns to a row of a NET_WEIGHT_SECTIONS section. The AC Note sent with the row is read; else
 	the one saved before on the record (e.g. its download failed this time); else the values set by
-	hand (net_weight_manual, accepted_date_manual: both weights), else the master's Net Quantity
-	(both weights) and no Accepted Date."""
+	hand (net_weight_manual, accepted_date_manual: both weights), else 0 (both weights) and no
+	Accepted Date."""
 	label = NET_WEIGHT_SECTIONS.get((site, section))
 	if not label:
 		return cells
@@ -247,7 +244,7 @@ def add_net_weight(site: str, section: str, cells: dict[str, str], row: dict, re
 	if not (_purchase_weight_in(text) or _net_weight_in(text)):
 		text = ac_note_text(_saved_document(record_name, label))
 	manual = manual_ac_note_values(record_name)
-	fallback = manual[NET_WEIGHT_COLUMN] or default_net_weight()
+	fallback = manual[NET_WEIGHT_COLUMN] or NO_AC_NOTE_WEIGHT
 	cells = {h: v for h, v in cells.items() if h not in AC_NOTE_COLUMNS}  # same column order on every read
 	return {
 		**cells,
@@ -327,6 +324,49 @@ def add_dc_district(site: str, section: str, cells: dict[str, str], row: dict, r
 	else:
 		district = dc_district(_sent_receipt(row)) or dc_district(_saved_file(saved.receipt_file)) or NO_DISTRICT
 	return with_district(cells, district)
+
+
+# View DC: Depot Name(s) from table 2 of the DC PDF ("The delivery shall be made at the following
+# depot": SlNo. | Depot Name | Depot Code | No. of Lots | Quantity in Qtl). Several depots are joined
+# with " / " (a name can hold a comma: "RMC,Kantabanji"). Not part of the record key.
+DEPOT_COLUMN = "Depot Name"
+DEPOT_SEPARATOR = " / "
+DC_DEPOT_TABLE = re.compile(
+	r"Quantity\s*in\s*Qtl(.*?)(?:RRC\s*FCI\s*TOTAL|Progressi?ve\s*quantity|$)", re.IGNORECASE | re.DOTALL
+)
+DEPOT_CODE = re.compile(r"(?<![A-Za-z])[A-Z]{2}\d{6}(?!\d)")  # e.g. DG051601, DW051602
+
+
+def dc_depots(content: bytes | None) -> str:
+	"""Depot Name(s) of a View DC PDF ("RMC,Kantabanji"); "" when not found."""
+	return _dc_depots_in(ac_note_text(content))
+
+
+def _dc_depots_in(text: str) -> str:
+	"""Each depot row's name is the text before its Depot Code, after the previous row (its Lots and
+	Quantity, and this row's SlNo.: the PDF text may join them, e.g. "Qtl1 RMC,Kantabanji")."""
+	table = DC_DEPOT_TABLE.search(text or "")
+	if not table:
+		return ""
+	segment, names, start = table.group(1), [], 0
+	for code in DEPOT_CODE.finditer(segment):
+		name = _squash(re.sub(r"^[\d.\s]+", "", segment[start : code.start()]))
+		start = code.end()
+		if name and name not in names:
+			names.append(name)
+	return DEPOT_SEPARATOR.join(names)
+
+
+def add_dc_depot(site: str, section: str, cells: dict[str, str], row: dict, record_name: str) -> dict[str, str]:
+	"""Set the Depot Name column of a View DC row from the DC PDF sent with the row, else (no
+	Depot Name yet) from the PDF saved before on the record. Left as it is when not found."""
+	if (site, section) not in DISTRICT_SECTIONS:
+		return cells
+	depot = dc_depots(_sent_receipt(row))
+	if not depot:
+		saved = frappe.db.get_value("Portal Record", record_name, ["receipt_file", "row_data"], as_dict=True) or frappe._dict()
+		depot = _load_json(saved.row_data).get(DEPOT_COLUMN) or dc_depots(_saved_file(saved.receipt_file))
+	return {**cells, DEPOT_COLUMN: depot} if depot else cells
 
 
 def with_district(cells: dict[str, str], district: str) -> dict[str, str]:
@@ -711,9 +751,10 @@ def _upsert_row(extraction, row: dict, key_columns: list[str]) -> tuple[str, Doc
 	record_key = build_record_key(cells, key_columns)
 	mill_id = row_mill_id(cells, extraction.mill_label_keys or mill_label_keys(None), extraction.mill_id)
 	name = resolve_record_name(extraction.site, extraction.section, record_key, mill_id)
-	# Added after the key: the Net Weight / Accepted Date / District never make a new record.
+	# Added after the key: the Net Weight / Accepted Date / District / Depot Name never make a new record.
 	cells = add_net_weight(extraction.site, extraction.section, cells, row, name)
 	cells = add_dc_district(extraction.site, extraction.section, cells, row, name)
+	cells = add_dc_depot(extraction.site, extraction.section, cells, row, name)
 	cells = add_lot_vehicle(extraction.site, extraction.section, cells, row, name)
 	row_hash = build_row_hash(cells)
 	details = normalize_details(row["details"]) if row.get("details") is not None else None
