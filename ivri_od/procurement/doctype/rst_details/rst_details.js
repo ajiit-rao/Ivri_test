@@ -39,7 +39,7 @@ function refresh_tp_details(frm) {
 			show_rst_unique_key_status(frm, data.key_message || "");
 			if (data.notification) {
 				frappe.msgprint({
-					title: __(data.tp_status || "Status"),
+					title: __(rst_status_label(data.tp_status, frm.doc) || "Status"),
 					message: __(data.notification),
 					indicator: "orange",
 				});
@@ -57,11 +57,12 @@ function refresh_tp_details(frm) {
 }
 
 // The site hides empty read-only fields; keep these visible so staff see they are empty.
+// Depo RST (Rice Dispatch): Season Code and RST Unique Key are not used, so they are hidden.
 function always_show_read_only(frm, fieldnames) {
 	for (const fieldname of fieldnames) {
 		const field = frm.fields_dict[fieldname];
 		if (field && !field.df.get_status) {
-			field.df.get_status = () => "Read";
+			field.df.get_status = () => (frm.doc.tp_status === "Rice Dispatch" ? "None" : "Read");
 			field.refresh();
 		}
 	}
@@ -71,7 +72,7 @@ function always_show_read_only(frm, fieldnames) {
 // message: the server's reason after a lookup; undefined on load, when the saved values decide.
 function show_rst_unique_key_status(frm, message) {
 	frm.set_intro("");
-	if (!frm.fields_dict.rst_unique_key) {
+	if (!frm.fields_dict.rst_unique_key || frm.doc.tp_status === "Rice Dispatch") {
 		return;
 	}
 	if (message === undefined && !frm.is_new() && !frm.doc.rst_unique_key) {
@@ -131,8 +132,50 @@ function load_party_name_choices(frm) {
 	});
 }
 
+// Party Name is a depo -> saved status "Rice Dispatch". Staff see "Rice Delivery to Depo", or
+// "Lot No is empty" while TP No (shown as Lot No) is blank. Only the display changes: the saved
+// value stays "Rice Dispatch" (the weighment, Rice Dispatch report and filters use it).
+const RICE_DISPATCH = "Rice Dispatch";
+const LOT_NO_EMPTY = "Lot No is empty";
+
+function rst_status_label(value, doc) {
+	if (value === RICE_DISPATCH) {
+		return (doc?.tp_no || "").trim() ? "Rice Delivery to Depo" : LOT_NO_EMPTY;
+	}
+	return value || "";
+}
+
+function format_rst_status(value, doc) {
+	const label = rst_status_label(value, doc);
+	const html = frappe.utils.escape_html(__(label));
+	return label === LOT_NO_EMPTY ? `<span class="text-danger">${html}</span>` : html;
+}
+
+// Depo RST: the TP No field holds the Lot No, so it is labelled Lot No, and Season Code and
+// RST Unique Key are hidden (see always_show_read_only).
+function sync_lot_no_label(frm) {
+	const is_depo = frm.doc.tp_status === RICE_DISPATCH;
+	frm.set_df_property("tp_no", "label", is_depo ? __("Lot No") : __("TP No"));
+	for (const fieldname of ["tp_status", "season_code", "rst_unique_key"]) {
+		frm.refresh_field(fieldname);
+	}
+	if (is_depo) {
+		frm.set_intro("");
+	}
+}
+
 frappe.ui.form.on("RST Details", {
+	setup(frm) {
+		const df = frm.get_docfield("tp_status");
+		if (df) {
+			df.formatter = (value, _df, _options, doc) => format_rst_status(value, doc || frm.doc);
+		}
+	},
+	tp_status(frm) {
+		sync_lot_no_label(frm);
+	},
 	refresh(frm) {
+		sync_lot_no_label(frm);
 		load_party_name_choices(frm);
 		sync_mill_requirement(frm);
 		frm.toggle_display("local_purchase_order", Boolean(frm.doc.local_purchase_order));
@@ -140,6 +183,7 @@ frappe.ui.form.on("RST Details", {
 		show_rst_unique_key_status(frm);
 	},
 	tp_no(frm) {
+		frm.refresh_field("tp_status");
 		refresh_tp_details(frm);
 	},
 	entry_datetime(frm) {

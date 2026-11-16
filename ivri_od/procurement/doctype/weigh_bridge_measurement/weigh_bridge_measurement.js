@@ -76,6 +76,23 @@ frappe.ui.form.on("Weigh Bridge Measurement", {
 		sync_quality_from_qc(frm);
 	},
 	refresh(frm) {
+		if (frm.doc.split_from_weighment) {
+			// Made from the Other TPs of the truck's weighment: change it there, not here.
+			frm.set_intro(
+				__("This weighment was made for TP {0} from the Other TPs of weighment {1} (same truck). Load and Tare Weight are the truck's. Only Deduction can be changed here; change the Qty in the Other TPs there.", [
+					frappe.utils.escape_html(frm.doc.transit_pass_no || ""),
+					`<a href="${frappe.utils.get_form_link("Weigh Bridge Measurement", frm.doc.split_from_weighment)}">${frappe.utils.escape_html(frm.doc.split_from_weighment)}</a>`,
+				]),
+				"blue"
+			);
+			// Everything follows the truck's weighment, except this TP's own Deduction.
+			(frm.meta.fields || []).forEach((df) => {
+				if (frappe.model.no_value_type.includes(df.fieldtype)) return;
+				frm.set_df_property(df.fieldname, "read_only", df.fieldname === "deduction" ? 0 : 1);
+			});
+			frm.set_df_property("other_tp_section", "collapsible", 0);
+			return;
+		}
 		frm.toggle_display("is_farmer_or_agent", Boolean(frm.doc.is_farmer_or_agent));
 		frm.toggle_display("local_purchase_order", Boolean(frm.doc.local_purchase_order));
 		toggle_wbm_source_mode_ui(frm);

@@ -18,8 +18,15 @@
   "cmr_season",
   "chhatni",
   "is_local_procurement",
+  "is_rice_dispatch",
   "column_break_ytzu",
   "local_procurement_note",
+  "rice_dispatch_section",
+  "depo",
+  "depo_name",
+  "depo_type",
+  "rice_dispatch_cb",
+  "lot_no",
   "transit_pass_section",
   "transit_pass_no",
   "transit_pass_datetime",
@@ -59,8 +66,12 @@
   "gross_weight",
   "gunny_weight",
   "deduction",
+  "rst_net_weight",
+  "other_tp_qty",
   "net_weight",
   "weigh_bridge_measurement",
+  "other_tp_section",
+  "other_tp_details",
   "quality_section",
   "quality_check",
   "qc_sample_no",
@@ -97,7 +108,7 @@
  ],
  "fields": [
   {
-   "depends_on": "eval:doc.is_local_procurement",
+   "depends_on": "eval:doc.is_local_procurement || doc.is_rice_dispatch",
    "fieldname": "local_paddy_heading",
    "fieldtype": "HTML",
    "options": "<div style=\"font-size:32px;font-weight:700;line-height:1.15;margin:8px 0 16px;\">Local Paddy Purchase</div>"
@@ -117,7 +128,7 @@
    "unique": 1
   },
   {
-   "depends_on": "eval:!doc.is_local_procurement",
+   "depends_on": "eval:!doc.is_local_procurement && !doc.is_rice_dispatch",
    "fieldname": "pass_unique_key",
    "fieldtype": "Autocomplete",
    "label": "Pass Unique Key",
@@ -179,14 +190,14 @@
   },
   {
    "bold": 1,
-   "depends_on": "eval:!doc.is_local_procurement",
+   "depends_on": "eval:!doc.is_local_procurement && !doc.is_rice_dispatch",
    "fieldname": "local_procurement_note",
    "fieldtype": "Data",
    "label": "Purchase",
    "read_only": 1
   },
   {
-   "depends_on": "eval:!doc.is_local_procurement",
+   "depends_on": "eval:!doc.is_local_procurement && !doc.is_rice_dispatch",
    "fieldname": "transit_pass_section",
    "fieldtype": "Section Break",
    "label": "Transit Pass"
@@ -239,7 +250,7 @@
    "in_list_view": 1
   },
   {
-   "depends_on": "eval:!doc.is_local_procurement",
+   "depends_on": "eval:!doc.is_local_procurement && !doc.is_rice_dispatch",
    "fieldname": "mill_name",
    "fieldtype": "Data",
    "in_list_view": 1,
@@ -458,6 +469,26 @@
    "read_only": 1
   },
   {
+   "depends_on": "eval:doc.other_tp_qty",
+   "description": "Net Weight of the whole truck from the weighment.",
+   "fieldname": "rst_net_weight",
+   "fieldtype": "Float",
+   "label": "RST Net Weight (QT)",
+   "non_negative": 1,
+   "precision": "3",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.other_tp_qty",
+   "description": "Paddy of other TPs in the same truck, each with its own weighment and GRN.",
+   "fieldname": "other_tp_qty",
+   "fieldtype": "Float",
+   "label": "Other TP Qty (QT)",
+   "non_negative": 1,
+   "precision": "3",
+   "read_only": 1
+  },
+  {
    "fieldname": "net_weight",
    "fieldtype": "Float",
    "in_list_view": 1,
@@ -472,6 +503,19 @@
    "hidden": 1,
    "label": "Weigh Bridge Measurement",
    "options": "Weigh Bridge Measurement",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.other_tp_qty",
+   "fieldname": "other_tp_section",
+   "fieldtype": "Section Break",
+   "label": "Other TPs in this RST"
+  },
+  {
+   "fieldname": "other_tp_details",
+   "fieldtype": "Table",
+   "label": "Other TPs in this RST",
+   "options": "Weighment Other TP",
    "read_only": 1
   },
   {
@@ -600,7 +644,7 @@
    "read_only": 1
   },
   {
-   "depends_on": "eval:!doc.is_local_procurement",
+   "depends_on": "eval:!doc.is_local_procurement && !doc.is_rice_dispatch",
    "fieldname": "entry_data_section",
    "fieldtype": "Section Break",
    "label": "Entry Data"
@@ -613,13 +657,13 @@
    "read_only": 1
   },
   {
-   "depends_on": "eval:!doc.is_local_procurement",
+   "depends_on": "eval:!doc.is_local_procurement && !doc.is_rice_dispatch",
    "fieldname": "tp_fulfillment_section",
    "fieldtype": "Section Break",
    "label": "TP & Chhatni Fulfillment"
   },
   {
-   "depends_on": "eval:!doc.is_local_procurement",
+   "depends_on": "eval:!doc.is_local_procurement && !doc.is_rice_dispatch",
    "fieldname": "received_quantity",
    "fieldtype": "Float",
    "label": "This GRN Received (QT)",
@@ -628,7 +672,7 @@
    "read_only": 1
   },
   {
-   "depends_on": "eval:!doc.is_local_procurement",
+   "depends_on": "eval:!doc.is_local_procurement && !doc.is_rice_dispatch",
    "fieldname": "tp_cumulative_received",
    "fieldtype": "Float",
    "label": "Pass Total Received So Far (QT)",
@@ -637,7 +681,7 @@
    "read_only": 1
   },
   {
-   "depends_on": "eval:!doc.is_local_procurement",
+   "depends_on": "eval:!doc.is_local_procurement && !doc.is_rice_dispatch",
    "fieldname": "tp_cumulative_deduction",
    "fieldtype": "Float",
    "label": "Progressive Deduction Total (QT)",
@@ -646,12 +690,12 @@
    "read_only": 1
   },
   {
-   "depends_on": "eval:!doc.is_local_procurement",
+   "depends_on": "eval:!doc.is_local_procurement && !doc.is_rice_dispatch",
    "fieldname": "column_break_tp_fulfillment",
    "fieldtype": "Column Break"
   },
   {
-   "depends_on": "eval:!doc.is_local_procurement",
+   "depends_on": "eval:!doc.is_local_procurement && !doc.is_rice_dispatch",
    "fieldname": "chhatni_received_pct",
    "fieldtype": "Float",
    "label": "Chhatni % Received",
@@ -660,7 +704,7 @@
    "read_only": 1
   },
   {
-   "depends_on": "eval:!doc.is_local_procurement",
+   "depends_on": "eval:!doc.is_local_procurement && !doc.is_rice_dispatch",
    "fieldname": "tp_chhatni_balance",
    "fieldtype": "Float",
    "label": "Received (QT) - TP + Chhatni",
@@ -668,12 +712,12 @@
    "read_only": 1
   },
   {
-   "depends_on": "eval:!doc.is_local_procurement",
+   "depends_on": "eval:!doc.is_local_procurement && !doc.is_rice_dispatch",
    "fieldname": "column_break_tp_fulfillment_2",
    "fieldtype": "Column Break"
   },
   {
-   "depends_on": "eval:!doc.is_local_procurement",
+   "depends_on": "eval:!doc.is_local_procurement && !doc.is_rice_dispatch",
    "fieldname": "tp_fulfillment_status",
    "fieldtype": "Select",
    "in_list_view": 1,
@@ -683,7 +727,7 @@
    "read_only": 1
   },
   {
-   "depends_on": "eval:!doc.is_local_procurement",
+   "depends_on": "eval:!doc.is_local_procurement && !doc.is_rice_dispatch",
    "fieldname": "chhatni_fulfillment_status",
    "fieldtype": "Select",
    "in_list_view": 1,
@@ -693,16 +737,66 @@
    "in_standard_filter": 1
   },
   {
-   "depends_on": "eval:!doc.is_local_procurement",
+   "depends_on": "eval:!doc.is_local_procurement && !doc.is_rice_dispatch",
    "fieldname": "chhatni_fulfillment_remark",
    "fieldtype": "Small Text",
    "label": "Chhatni Note",
    "read_only": 1
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.is_rice_dispatch",
+   "fieldname": "is_rice_dispatch",
+   "fieldtype": "Check",
+   "label": "Rice Delivery to Depo",
+   "read_only": 1,
+   "in_standard_filter": 1,
+   "description": "Rice sent out to an RRC / FCI depo. A record only: not paddy received, not in Transit Pass totals, Mandi Book or paddy stock, never posted to stock."
+  },
+  {
+   "collapsible": 0,
+   "depends_on": "eval:doc.is_rice_dispatch",
+   "fieldname": "rice_dispatch_section",
+   "fieldtype": "Section Break",
+   "label": "Rice Delivery to Depo"
+  },
+  {
+   "fieldname": "depo",
+   "fieldtype": "Link",
+   "label": "Depo",
+   "options": "Depo Master",
+   "read_only": 1
+  },
+  {
+   "fetch_from": "depo.depo_type",
+   "fieldname": "depo_type",
+   "fieldtype": "Data",
+   "label": "Depo Type",
+   "read_only": 1
+  },
+  {
+   "fieldname": "rice_dispatch_cb",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "lot_no",
+   "fieldtype": "Data",
+   "label": "Lot No",
+   "read_only": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fetch_from": "depo.depo_name",
+   "fieldname": "depo_name",
+   "fieldtype": "Data",
+   "label": "Depo Name",
+   "read_only": 1,
+   "in_standard_filter": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-05 16:00:00.000000",
+ "modified": "2026-11-16 19:00:00.000000",
  "modified_by": "Administrator",
  "module": "Procurement",
  "name": "GRN Note",

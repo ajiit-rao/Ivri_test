@@ -52,6 +52,7 @@ GRN_FIELDS = [
 			"gunny_type",
 			"deduction",
 			"weigh_bridge_measurement",
+			"other_tp_qty",
 			"vehicle_no",
 			"receipt_datetime",
 			"creation",
@@ -194,7 +195,7 @@ def get_columns(show_season: bool = False):
 def get_data(filters):
 	grns = frappe.get_all(
 		"GRN Note",
-		filters={"is_local_procurement": 0, "docstatus": ["<", 2]},
+		filters={"is_local_procurement": 0, "is_rice_dispatch": 0, "docstatus": ["<", 2]},
 		fields=GRN_FIELDS,
 		order_by="receipt_datetime asc, creation asc",
 	)
@@ -494,6 +495,10 @@ def _weigh_bridges_for(grns) -> dict[str, dict]:
 			"gunny_weight",
 			"no_of_bags",
 			"total_bags",
+			"rst_net_weight",
+			"split_from_weighment",
+			"split_qty",
+			"tp_qty",
 		],
 	)
 	return {row.name: row for row in rows}
@@ -587,21 +592,38 @@ def _rst_lines(docs, wbm_by_name: dict, bags_by_wbm: dict) -> list[dict]:
 			net_wt = flt(gross_wt - gunny_weight - deduction, 3)
 
 		split_qty = doc.get("split_qty")
-		if split_qty is not None:
-			# This RST is shared by several TP Nos: this TP gets its Qty, and gross, gunny, deduction and
-			# bags in the same proportion, so that gross - gunny - deduction is exactly its Qty.
-			base_qty = gross_wt - gunny_weight - deduction
-			ratio = flt(split_qty) / base_qty if base_qty > 0 else 0.0
+		other_tp_qty = flt(doc.get("other_tp_qty"), 3) if split_qty is None else 0.0
+		own_qty = split_qty
+		share_qty = None
+		base_qty = gross_wt - gunny_weight - deduction
+		if other_tp_qty > 0 and base_qty - flt(net_wt) > 0.001:
+			# Every weighment of a truck with other TPs holds the whole truck's weights; this TP keeps its
+			# Net Weight. Its share of the truck: the truck's own TP its Net Weight, a split TP its Qty
+			# (its own Deduction then shows in the line's Deduction).
+			own_qty = max(flt(net_wt), 0.0)
+			if wbm.get("split_from_weighment") and flt(wbm.get("split_qty")) > 0:
+				share_qty = flt(wbm.get("split_qty"), 3)
+			if flt(wbm.get("rst_net_weight")) > 0:
+				base_qty = flt(wbm.get("rst_net_weight"), 3)
+		ratio = 1
+		if own_qty is not None:
+			# This RST is shared by several TP Nos: gross, gunny and bags in proportion to this TP's share,
+			# deduction so that gross - gunny - deduction is exactly its Net Weight.
+			share = own_qty if share_qty is None else share_qty
+			ratio = flt(share) / base_qty if base_qty > 0 else 0.0
 			load_wt, tare_wt = flt(load_wt * ratio, 3), flt(tare_wt * ratio, 3)
 			gross_wt, gunny_weight = flt(gross_wt * ratio, 3), flt(gunny_weight * ratio, 3)
-			deduction = flt(gross_wt - gunny_weight - flt(split_qty), 3)
-			net_wt = flt(split_qty, 3)
+			deduction = flt(gross_wt - gunny_weight - flt(own_qty), 3)
+			net_wt = flt(own_qty, 3)
 			jute, plastic = int(round(jute * ratio)), int(round(plastic * ratio))
 			total_bags = int(round(total_bags * ratio))
 
 		lines.append(
 			{
 				"split_qty": flt(split_qty, 3) if split_qty is not None else None,
+				"other_tp_qty": other_tp_qty or None,
+				# RST shared with other TPs: this TP's Qty (Gross - Other TPs of its weighment).
+				"rst_tp_qty": (flt(wbm.get("tp_qty"), 3) or None) if other_tp_qty > 0 else None,
 				"grn_no": (doc.grn_no or doc.name or "").strip(),
 				"grn_name": (doc.name or "").strip(),
 				"rst_no": rst_no,
@@ -617,7 +639,7 @@ def _rst_lines(docs, wbm_by_name: dict, bags_by_wbm: dict) -> list[dict]:
 				"actual_vehicle_no": vehicle,
 				"jute_pkt": jute,
 				"plastic_pkt": plastic,
-				"no_of_bags": int(round(cint(wbm.get("no_of_bags")) * (ratio if split_qty is not None else 1))),
+				"no_of_bags": int(round(cint(wbm.get("no_of_bags")) * ratio)),
 				"total_bags": total_bags,
 			}
 		)
@@ -729,6 +751,8 @@ def _grn_fields_dict(line: dict) -> dict:
 		"net_weight": flt(line.get("net_weight"), 3),
 		"weigh_bridge_measurement": (line.get("weigh_bridge_measurement") or "").strip(),
 		"split_qty": line.get("split_qty"),
+		"other_tp_qty": line.get("other_tp_qty"),
+		"rst_tp_qty": line.get("rst_tp_qty"),
 	}
 
 
@@ -747,6 +771,8 @@ def _empty_grn_dict() -> dict:
 		"net_weight": None,
 		"weigh_bridge_measurement": "",
 		"split_qty": None,
+		"other_tp_qty": None,
+		"rst_tp_qty": None,
 	}
 
 
