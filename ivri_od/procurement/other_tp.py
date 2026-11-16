@@ -228,6 +228,11 @@ def sync_split_weighments(wbm) -> None:
 		child.split_from_weighment = wbm.name
 		child.split_qty = flt(row.qty, 3)
 		child.pass_unique_key = row.pass_unique_key
+		# Deduction given in the Mandi Book dialog (else the split weighment keeps its own).
+		deductions = wbm.flags.get("other_tp_deduction_by_tp") or {}
+		tp_no = (row.transit_pass_no or "").strip()
+		if tp_no in deductions:
+			child.deduction = deductions[tp_no]
 		child.flags.ignore_permissions = True
 		child.save()
 		kept.add(child.name)
@@ -376,11 +381,16 @@ def save_other_tps(wbm_name: str, rows) -> dict:
 	wbm.check_permission("write")
 	old = {(row.transit_pass_no or "").strip(): row.weighment for row in wbm.get("other_tp_details") or []}
 	wbm.set("other_tp_details", [])
+	deduction_by_tp = {}
 	for row in rows or []:
 		values = {field: row.get(field) for field in ROW_FIELDS if field != "weighment"}
 		# Keep the weighment of a TP already given, so it is updated and not made again.
 		values["weighment"] = old.get((row.get("transit_pass_no") or "").strip())
 		wbm.append("other_tp_details", values)
+		if row.get("deduction") is not None and row.get("deduction") != "":
+			deduction_by_tp[(row.get("transit_pass_no") or "").strip()] = flt(row.get("deduction"), 3)
+	# sync_split_weighments (on_update) gives each split weighment its Deduction from this.
+	wbm.flags.other_tp_deduction_by_tp = deduction_by_tp
 	wbm.save()
 	grn = _grn_for_wbm(wbm.name)
 	net = flt(frappe.db.get_value("GRN Note", grn, "net_weight"), 3) if grn else None

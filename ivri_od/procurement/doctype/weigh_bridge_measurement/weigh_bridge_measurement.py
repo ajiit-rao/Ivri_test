@@ -309,6 +309,8 @@ class WeighBridgeMeasurement(Document):
 		frappe.db.after_commit(lambda k=key: refresh_tp_fulfillment_for_pass(k))
 
 	def on_trash(self):
+		self._unlink_other_tp_rows()
+		self._delete_split_weighments()
 		if self.demo_rst_data and frappe.db.exists("RST Details", self.demo_rst_data):
 			if (
 				frappe.db.get_value(
@@ -323,6 +325,34 @@ class WeighBridgeMeasurement(Document):
 					None,
 					update_modified=False,
 				)
+
+	def _unlink_other_tp_rows(self):
+		"""Other TPs rows of other weighments / GRN Notes that point to this weighment lose the link.
+
+		The truck's weighment and its split weighments list each other there, so without this neither
+		could be deleted. The row itself stays: on the truck's weighment it still says the truck carried
+		that TP (remove the row there to drop the TP for good; saving the truck makes a new split).
+		"""
+		frappe.db.set_value(
+			"Weighment Other TP",
+			{"weighment": self.name, "parent": ["!=", self.name]},
+			"weighment",
+			None,
+			update_modified=False,
+		)
+
+	def _delete_split_weighments(self):
+		"""Deleting the truck's weighment also deletes its split weighments (they follow its weights).
+
+		Their GRN Notes are not deleted here: a split weighment with a GRN Note stops the delete with the
+		usual "linked with GRN Note" message, so nothing posted is removed silently.
+		"""
+		if (self.get("split_from_weighment") or "").strip():
+			return
+		for name in frappe.get_all(
+			"Weigh Bridge Measurement", filters={"split_from_weighment": self.name}, pluck="name"
+		):
+			frappe.delete_doc("Weigh Bridge Measurement", name, ignore_permissions=True)
 
 	def validate(self):
 		if (self.get("split_from_weighment") or "").strip():
@@ -1265,7 +1295,8 @@ def rst_date_time(rst_name: str):
 
 
 def is_rice_dispatch_wbm(wbm_name: str) -> bool:
-	"""Rice Dispatch weighment: never turned into a GRN Note and not part of Transit Pass totals."""
+	"""Rice Dispatch weighment (rice to a depo): its GRN Note is a Rice Delivery to Depo record, and it is
+	never part of Transit Pass totals."""
 	if not wbm_name:
 		return False
 	return frappe.db.get_value("Weigh Bridge Measurement", wbm_name, "tp_status") == TP_STATUS_RICE_DISPATCH
@@ -1374,10 +1405,8 @@ def _ensure_grn_note_for_weigh_bridge(wbm_name: str):
 	if not wbm_name or not frappe.db.exists("Weigh Bridge Measurement", wbm_name):
 		return
 
-	if is_rice_dispatch_wbm(wbm_name):
-		return
-
-	# An existing GRN keeps syncing, local paddy purchase included, so a later correction reaches it.
+	# An existing GRN keeps syncing (local paddy purchase and rice delivery to depo included), so a
+	# later correction reaches it.
 	if frappe.db.exists(
 		"GRN Note",
 		{"weigh_bridge_measurement": wbm_name, "docstatus": ["<", 2]},
@@ -1385,9 +1414,7 @@ def _ensure_grn_note_for_weigh_bridge(wbm_name: str):
 		sync_grn_from_weigh_bridge(wbm_name)
 		return
 
-	if is_local_procurement_wbm(wbm_name):
-		return
-
+	# GRN is generated for Transit Pass, Local Paddy Purchase and Rice Dispatch (depo) weighments.
 	# GRN is generated as soon as the tare weight is entered (build_auto_grn_doc_dict checks it). It does
 	# not wait for the Quality Check or the Gate Exit: they are attached to this GRN when they arrive.
 	payload = build_auto_grn_doc_dict(wbm_name)
@@ -1422,9 +1449,6 @@ def grn_pending_reasons_for_wbm(wbm_name: str) -> list[str]:
 		{"weigh_bridge_measurement": wbm_name, "docstatus": ["<", 2]},
 	):
 		return []
-	if is_rice_dispatch_wbm(wbm_name):
-		return [_("Rice Dispatch is not linked to a GRN Note.")]
-
 	wbm = frappe.db.get_value(
 		"Weigh Bridge Measurement",
 		wbm_name,
@@ -1435,7 +1459,7 @@ def grn_pending_reasons_for_wbm(wbm_name: str) -> list[str]:
 		return [_("Weigh Bridge Measurement not found.")]
 	if not flt(wbm.tare_weight):
 		reasons.append(_("Enter tare weight on the weigh bridge."))
-	if is_local_procurement_wbm(wbm_name):
+	if is_rice_dispatch_wbm(wbm_name) or is_local_procurement_wbm(wbm_name):
 		if not (wbm.rst_no or "").strip():
 			reasons.append(_("Enter RST No."))
 	else:

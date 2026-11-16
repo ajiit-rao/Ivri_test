@@ -10,6 +10,7 @@
  "field_order": [
   "code",
   "depo_name",
+  "depo_type",
   "column_break_1",
   "district",
   "distance",
@@ -40,6 +41,17 @@
    "in_standard_filter": 1,
    "label": "Depo Name",
    "reqd": 1
+  },
+  {
+   "allow_in_quick_entry": 1,
+   "fieldname": "depo_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Depo Type",
+   "options": "\nRRC\nFCI",
+   "reqd": 1,
+   "description": "Who the depo belongs to: RRC or FCI."
   },
   {
    "fieldname": "column_break_1",
@@ -95,7 +107,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-05 22:00:00.000000",
+ "modified": "2026-11-16 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Procurement",
  "name": "Depo Master",
@@ -130,7 +142,7 @@
   }
  ],
  "quick_entry": 0,
- "search_fields": "depo_name,title,district,agent",
+ "search_fields": "depo_name,title,depo_type,district,agent",
  "show_name_in_global_search": 1,
  "show_title_field_in_link": 1,
  "sort_field": "modified",

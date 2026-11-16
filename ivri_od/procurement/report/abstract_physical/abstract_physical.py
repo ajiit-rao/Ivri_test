@@ -180,7 +180,7 @@ def get_data(filters):
 
 	all_grns = frappe.get_all(
 		"GRN Note",
-		filters={"is_local_procurement": 0, "docstatus": ["<", 2]},
+		filters={"is_local_procurement": 0, "is_rice_dispatch": 0, "docstatus": ["<", 2]},
 		fields=grn_fields,
 	)
 

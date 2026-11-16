@@ -195,7 +195,7 @@ def get_columns(show_season: bool = False):
 def get_data(filters):
 	grns = frappe.get_all(
 		"GRN Note",
-		filters={"is_local_procurement": 0, "docstatus": ["<", 2]},
+		filters={"is_local_procurement": 0, "is_rice_dispatch": 0, "docstatus": ["<", 2]},
 		fields=GRN_FIELDS,
 		order_by="receipt_datetime asc, creation asc",
 	)

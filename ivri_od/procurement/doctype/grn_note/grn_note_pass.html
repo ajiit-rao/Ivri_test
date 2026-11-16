@@ -383,7 +383,27 @@
 			<tr>
 				<!-- ── Left column ── -->
 				<td>
-					{% if not doc.is_local_procurement %}
+					{% if doc.is_rice_dispatch %}
+					<div class="section-box">
+						<div class="section-title">{{ _("Rice Delivery to Depo") }}</div>
+						<table class="kv">
+							<tr><td class="k">{{ _("Depo") }}</td><td class="v">{{ doc.party_name or "—" }}</td></tr>
+							<tr><td class="k">{{ _("Depo Code") }}</td><td class="v">{{ doc.depo or "—" }}</td></tr>
+							<tr><td class="k">{{ _("Depo Type") }}</td><td class="v">{{ doc.depo_type or "—" }}</td></tr>
+							<tr><td class="k">{{ _("Lot No") }}</td><td class="v">{{ doc.lot_no or "—" }}</td></tr>
+						</table>
+					</div>
+					{% elif doc.is_local_procurement %}
+					<div class="section-box">
+						<div class="section-title">{{ _("Local Procurement Details") }}</div>
+						<table class="kv">
+							<tr><td class="k">{{ _("RST No") }}</td><td class="v">{{ doc.rst_no or "—" }}</td></tr>
+							<tr><td class="k">{{ _("Agent Name") }}</td><td class="v">{{ doc.agent_name or "—" }}</td></tr>
+							<tr><td class="k">{{ _("Local Purchase Order") }}</td><td class="v">{{ doc.local_purchase_order or "—" }}</td></tr>
+							<tr><td class="k">{{ _("Mill Name") }}</td><td class="v">{{ doc.mill_name or "—" }}</td></tr>
+						</table>
+					</div>
+					{% else %}
 					<div class="section-box">
 						<div class="section-title">{{ _("Transit Pass Details") }}</div>
 						<table class="kv">
@@ -398,41 +418,19 @@
 							<tr><td class="k">{{ _("CMR Season") }}</td><td class="v">{{ doc.cmr_season or "—" }}</td></tr>
 						</table>
 					</div>
-
-					<div class="section-box">
-						<div class="section-title">{{ _("Gate Details") }}</div>
-						<table class="kv">
-							<tr><td class="k">{{ _("Vehicle") }}</td><td class="v">{{ doc.vehicle_no or "—" }}</td></tr>
-							<tr><td class="k">{{ _("Driver Name") }}</td><td class="v">{{ doc.driver_name or "—" }}</td></tr>
-							<tr><td class="k">{{ _("Driver Mobile No") }}</td><td class="v">{{ doc.mobile_no or "—" }}</td></tr>
-							<tr><td class="k">{{ _("Party Name") }}</td><td class="v">{{ doc.party_name or "—" }}</td></tr>
-							<tr><td class="k">{{ _("Arrival Date & Time") }}</td><td class="v">{{ arrival_datetime_display or "—" }}</td></tr>
-							<tr><td class="k">{{ _("Gate Exit Date & Time") }}</td><td class="v">{{ gate_exit_datetime_display or "—" }}</td></tr>
-						</table>
-					</div>
-					{% else %}
-					<div class="section-box">
-						<div class="section-title">{{ _("Local Procurement Details") }}</div>
-						<table class="kv">
-							<tr><td class="k">{{ _("RST No") }}</td><td class="v">{{ doc.rst_no or "—" }}</td></tr>
-							<tr><td class="k">{{ _("Agent Name") }}</td><td class="v">{{ doc.agent_name or "—" }}</td></tr>
-							<tr><td class="k">{{ _("Local Purchase Order") }}</td><td class="v">{{ doc.local_purchase_order or "—" }}</td></tr>
-							<tr><td class="k">{{ _("Mill Name") }}</td><td class="v">{{ doc.mill_name or "—" }}</td></tr>
-						</table>
-					</div>
-
-					<div class="section-box">
-						<div class="section-title">{{ _("Gate Details") }}</div>
-						<table class="kv">
-							<tr><td class="k">{{ _("Vehicle") }}</td><td class="v">{{ doc.vehicle_no or "—" }}</td></tr>
-							<tr><td class="k">{{ _("Driver Name") }}</td><td class="v">{{ doc.driver_name or "—" }}</td></tr>
-							<tr><td class="k">{{ _("Driver Mobile No") }}</td><td class="v">{{ doc.mobile_no or "—" }}</td></tr>
-							<tr><td class="k">{{ _("Party Name") }}</td><td class="v">{{ doc.party_name or "—" }}</td></tr>
-							<tr><td class="k">{{ _("Arrival Date & Time") }}</td><td class="v">{{ arrival_datetime_display or "—" }}</td></tr>
-							<tr><td class="k">{{ _("Gate Exit Date & Time") }}</td><td class="v">{{ gate_exit_datetime_display or "—" }}</td></tr>
-						</table>
-					</div>
 					{% endif %}
+
+					<div class="section-box">
+						<div class="section-title">{{ _("Gate Details") }}</div>
+						<table class="kv">
+							<tr><td class="k">{{ _("Vehicle") }}</td><td class="v">{{ doc.vehicle_no or "—" }}</td></tr>
+							<tr><td class="k">{{ _("Driver Name") }}</td><td class="v">{{ doc.driver_name or "—" }}</td></tr>
+							<tr><td class="k">{{ _("Driver Mobile No") }}</td><td class="v">{{ doc.mobile_no or "—" }}</td></tr>
+							<tr><td class="k">{{ _("Party Name") }}</td><td class="v">{{ doc.party_name or "—" }}</td></tr>
+							<tr><td class="k">{{ _("Arrival Date & Time") }}</td><td class="v">{{ arrival_datetime_display or "—" }}</td></tr>
+							<tr><td class="k">{{ _("Gate Exit Date & Time") }}</td><td class="v">{{ gate_exit_datetime_display or "—" }}</td></tr>
+						</table>
+					</div>
 				</td>
 
 				<!-- ── Right column ── -->
@@ -450,6 +448,10 @@
 							<tr><td class="k">{{ _("Gross Weight (QT)") }}</td><td class="v">{{ qty_gross_weight or doc.gross_weight or "—" }}{% if doc.gross_weight %} QT{% endif %}</td></tr>
 							<tr><td class="k">{{ _("Gunny Weight (QT)") }}</td><td class="v">{{ qty_gunny_weight or doc.gunny_weight or "—" }}{% if doc.gunny_weight %} QT{% endif %}</td></tr>
 							<tr><td class="k">{{ _("Deduction (QT)") }}</td><td class="v">{{ qty_deduction or doc.deduction or "—" }}{% if doc.deduction %} QT{% endif %}</td></tr>
+							{% if (doc.other_tp_qty or 0) > 0 %}
+							<tr><td class="k">{{ _("RST Net Weight (QT)") }}</td><td class="v">{{ qty_rst_net_weight }} QT</td></tr>
+							<tr><td class="k">{{ _("Other TP Qty (QT)") }}</td><td class="v">{{ qty_other_tp }} QT</td></tr>
+							{% endif %}
 							<tr class="highlight-row">
 								<td class="k" style="font-weight:700;color:#166534;">{{ _("Net Weight (QT)") }}</td>
 								<td class="v highlight-val">{{ qty_net_weight or doc.net_weight or "—" }}{% if doc.net_weight %} QT{% endif %}</td>

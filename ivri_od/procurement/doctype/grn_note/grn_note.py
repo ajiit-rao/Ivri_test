@@ -10,10 +10,13 @@ from frappe.model.naming import make_autoname
 from frappe.utils import cint, flt, format_datetime, format_time, formatdate, get_datetime, get_time, getdate, nowdate, nowtime
 
 from ivri_od.procurement.datetime_fields import combine_datetime, ensure_doc_datetime
-from ivri_od.procurement.doctype.rst_details.rst_details import get_rst_agent_name
+from ivri_od.procurement.doctype.rst_details.rst_details import get_depo_for_party, get_rst_agent_name
 from ivri_od.procurement.doctype.weigh_bridge_measurement.weigh_bridge_measurement import (
 	is_local_procurement_wbm,
+	is_rice_dispatch_wbm,
 )
+
+RICE_DISPATCH_HEADING = "Rice Delivery to Depo"
 from ivri_od.procurement.doctype.season_mapping.season_mapping import get_chhatni_from_season_mapping
 from ivri_od.procurement.doctype.season_master.season_master import resolve_season_master_name
 from ivri_od.procurement.mill_gate import get_qc_sl_no, normalize_vehicle_no
@@ -88,9 +91,14 @@ class GRNNote(Document):
 		self._sync_datetime_fields()
 		self._ensure_grn_no()
 		self._normalize_fields()
+		self._sync_rice_dispatch_flag()
 		self._sync_local_procurement_flags()
 		self._validate_farmer_or_agent_agent()
-		if cint(self.is_local_procurement):
+		if cint(self.is_rice_dispatch):
+			# Rice sent to a depo: weights, gate and depo only. No Transit Pass, chhatni or entry data.
+			self._validate_and_sync_rst()
+			self._sync_rice_dispatch_from_wbm()
+		elif cint(self.is_local_procurement):
 			self._validate_and_sync_rst()
 			self._sync_local_procurement_from_rst()
 			self._sync_ppc_name_from_quality_check()
@@ -149,7 +157,17 @@ class GRNNote(Document):
 		self._update_linked_purchase_order()
 
 	def _update_linked_purchase_order(self):
-		pass
+		"""Local Paddy Purchase: the Purchase Order's received / pending quantity follows its GRN Notes."""
+		from ivri_od.procurement.doctype.local_paddy_purchase_order.local_paddy_purchase_order import (
+			update_purchase_order_quantities,
+		)
+
+		pos = {(self.local_purchase_order or "").strip()}
+		before = self.get_doc_before_save()
+		if before:
+			pos.add((before.local_purchase_order or "").strip())
+		for po in pos - {""}:
+			update_purchase_order_quantities(po)
 
 	@staticmethod
 	def _refresh_po_qty(po_name: str):
@@ -166,6 +184,13 @@ class GRNNote(Document):
 		if key and not cint(self.is_local_procurement):
 			frappe.db.after_commit(lambda k=key: refresh_tp_fulfillment_for_pass(k))
 			frappe.db.after_commit(lambda k=key: _sync_procurement_rollups_for_pass(k))
+		po = (self.local_purchase_order or "").strip()
+		if po and cint(self.is_local_procurement):
+			from ivri_od.procurement.doctype.local_paddy_purchase_order.local_paddy_purchase_order import (
+				update_purchase_order_quantities,
+			)
+
+			frappe.db.after_commit(lambda p=po: update_purchase_order_quantities(p))
 
 	def _sync_tp_fulfillment_status(self):
 		if cint(self.is_local_procurement) or not (self.pass_unique_key or "").strip():
@@ -201,11 +226,62 @@ class GRNNote(Document):
 			self.chhatni_fulfillment_remark = row.chhatni_fulfillment_remark or ""
 
 	def _set_purchase_heading(self):
-		if cint(self.is_local_procurement):
+		if cint(self.is_rice_dispatch):
+			self.is_local_procurement = 0
+			self.local_procurement_note = _(RICE_DISPATCH_HEADING)
+		elif cint(self.is_local_procurement):
 			self.local_procurement_note = _("Local Paddy Purchase")
 		else:
 			self.is_local_procurement = 0
 			self.local_procurement_note = _("Government Paddy Purchase")
+
+	def _sync_rice_dispatch_flag(self):
+		"""A GRN of a Rice Dispatch weighment is a Rice Delivery to Depo GRN, never a paddy receipt."""
+		wbm_name = (self.weigh_bridge_measurement or "").strip()
+		if not wbm_name and (self.rst_no or "").strip():
+			wbm_name = _resolve_wbm_for_rst(self.rst_no, None) or ""
+		if wbm_name and is_rice_dispatch_wbm(wbm_name):
+			self.is_rice_dispatch = 1
+		if not cint(self.is_rice_dispatch):
+			return
+		self.is_local_procurement = 0
+		self.is_farmer_or_agent = 0
+		self.agent_name = ""
+		self.pass_unique_key = ""
+		self.mill_name = ""
+
+	def _sync_rice_dispatch_from_wbm(self):
+		"""Depo, Depo Type, Lot No and dispatch date from the Rice Dispatch weighment; Transit Pass parts cleared."""
+		wbm_name = (self.weigh_bridge_measurement or "").strip()
+		wbm = (
+			frappe.db.get_value(
+				"Weigh Bridge Measurement",
+				wbm_name,
+				["party_name", "lot_no", "date", "measurement_date", "measurement_time"],
+				as_dict=True,
+			)
+			if wbm_name
+			else None
+		)
+		if wbm:
+			self.party_name = (wbm.party_name or "").strip()
+			self.lot_no = (wbm.lot_no or "").strip()
+			if wbm.date:
+				self.receipt_datetime = get_datetime(wbm.date)
+			elif wbm.measurement_date:
+				self.receipt_date = wbm.measurement_date
+				self.receipt_time = wbm.measurement_time
+			ensure_doc_datetime(self, "receipt_datetime", date_field="receipt_date", time_field="receipt_time")
+		depo = get_depo_for_party(self.party_name)
+		self.depo = depo.get("name") if depo else None
+		self.depo_name = (depo.get("depo_name") or "").strip() if depo else ""
+		self.depo_type = (
+			frappe.db.get_value("Depo Master", self.depo, "depo_type") or "" if self.depo else ""
+		)
+		# Clears every Transit Pass value (the key is empty), the chhatni and the entry rows.
+		self._sync_from_transit_pass()
+		self.entry_details = []
+		self.chhatni = 0
 
 	def _sync_ppc_name_from_quality_check(self):
 		qc_name = (self.quality_check or "").strip()
@@ -272,6 +348,8 @@ class GRNNote(Document):
 			frappe.throw(_("Select Agent Name for farmer / agent procurement."))
 
 	def _sync_local_procurement_flags(self):
+		if cint(self.is_rice_dispatch):
+			return
 		if cint(self.is_local_procurement):
 			self.local_procurement_note = _("Local Paddy Purchase")
 			self.pass_unique_key = ""
@@ -406,18 +484,28 @@ class GRNNote(Document):
 		if not rst_no:
 			frappe.throw(_("Enter RST No from Weigh Bridge Measurement."))
 
-		pass_key = (self.pass_unique_key or "").strip() if not cint(self.is_local_procurement) else ""
-		wbm_name = _resolve_wbm_for_rst(rst_no, pass_key or None)
+		no_pass = cint(self.is_local_procurement) or cint(self.is_rice_dispatch)
+		pass_key = (self.pass_unique_key or "").strip() if not no_pass else ""
+		# Keep the linked weighment when it is still this RST's (several weighments can share an RST No).
+		linked = (self.weigh_bridge_measurement or "").strip()
+		if linked and (frappe.db.get_value("Weigh Bridge Measurement", linked, "rst_no") or "").strip() == rst_no:
+			wbm_name = linked
+		else:
+			wbm_name = _resolve_wbm_for_rst(rst_no, pass_key or None)
 		if not wbm_name:
 			frappe.throw(
 				_("No Weigh Bridge Measurement found for RST No {0}.").format(frappe.bold(rst_no))
 			)
 
 		self.weigh_bridge_measurement = wbm_name
-		if cint(self.is_local_procurement) or is_local_procurement_wbm(wbm_name):
+		if not cint(self.is_rice_dispatch) and (
+			cint(self.is_local_procurement) or is_local_procurement_wbm(wbm_name)
+		):
 			self.is_local_procurement = 1
 		strict_wbm = (
-			not cint(self.is_local_procurement) and not getattr(self.flags, "auto_from_wbm", False)
+			not cint(self.is_local_procurement)
+			and not cint(self.is_rice_dispatch)
+			and not getattr(self.flags, "auto_from_wbm", False)
 		)
 		self._apply_weigh_bridge(wbm_name, strict=strict_wbm)
 		qc_name = (self.quality_check or "").strip()
@@ -464,7 +552,7 @@ class GRNNote(Document):
 			if not flt(wbm.tare_weight):
 				frappe.throw(_("GRN Note can be created only when tare weight is greater than zero."))
 
-		if not cint(self.is_local_procurement):
+		if not cint(self.is_local_procurement) and not cint(self.is_rice_dispatch):
 			if (wbm.pass_unique_key or "").strip() != self.pass_unique_key:
 				frappe.throw(
 					_(
@@ -554,8 +642,9 @@ class GRNNote(Document):
 		if not qc:
 			return
 
-		if not cint(self.is_local_procurement):
-			# Government paddy: the party is the Quality Check farmer / staff (local paddy keeps the RST party).
+		if not cint(self.is_local_procurement) and not cint(self.is_rice_dispatch):
+			# Government paddy: the party is the Quality Check farmer / staff (local paddy keeps the RST
+			# party, a depo GRN keeps the depo).
 			self.party_name = (
 				(qc.farmer_name if cint(qc.is_farmer_or_agent) else qc.staff_name) or ""
 			).strip()
@@ -803,7 +892,10 @@ def sync_grn_from_weigh_bridge(wbm_name: str) -> str | None:
 			grn.rst_no = (wbm.rst_no or "").strip()
 		grn.weigh_bridge_measurement = wbm_name
 
-		if is_local_procurement_wbm(wbm_name):
+		if is_rice_dispatch_wbm(wbm_name):
+			grn.is_rice_dispatch = 1
+			grn._sync_rice_dispatch_flag()
+		elif is_local_procurement_wbm(wbm_name):
 			grn.is_local_procurement = 1
 			grn.pass_unique_key = ""
 			grn._sync_local_procurement_from_rst()
@@ -839,7 +931,10 @@ def sync_grn_from_weigh_bridge(wbm_name: str) -> str | None:
 
 		grn._apply_gate_entry((grn.gate_entry or "").strip())
 
-		if not cint(grn.is_local_procurement):
+		if cint(grn.is_rice_dispatch):
+			grn._sync_rice_dispatch_from_wbm()
+			grn._set_purchase_heading()
+		elif not cint(grn.is_local_procurement):
 			grn._sync_from_transit_pass()
 			grn._sync_entry_details_from_pass()
 
@@ -893,8 +988,10 @@ def build_auto_grn_doc_dict(wbm_name: str) -> dict | None:
 		return None
 
 	# No wait for the Quality Check: it is attached to the GRN when it becomes available.
+	if is_rice_dispatch_wbm(wbm_name):
+		return grn_dict_for_rice_dispatch_wbm(wbm_name)
 	if is_local_procurement_wbm(wbm_name):
-		return None
+		return grn_dict_for_local_wbm(wbm_name)
 
 	wbm = frappe.db.get_value(
 		"Weigh Bridge Measurement",
@@ -933,8 +1030,64 @@ def build_auto_grn_doc_dict(wbm_name: str) -> dict | None:
 
 
 def grn_dict_for_local_wbm(wbm_name: str) -> dict | None:
-	"""Disabled: Local Paddy Purchase is disabled."""
-	return None
+	"""GRN payload for a Local Paddy Purchase weighment (no Transit Pass).
+
+	Validate fills the weights, Quality Check and gate details from the weighment; the payload only names it.
+	"""
+	if not wbm_name or not is_local_procurement_wbm(wbm_name):
+		return None
+	wbm = frappe.db.get_value(
+		"Weigh Bridge Measurement",
+		wbm_name,
+		["rst_no", "demo_rst_data", "party_name", "local_purchase_order", "date"],
+		as_dict=True,
+	)
+	if not wbm or not (wbm.rst_no or "").strip():
+		return None
+	rst = (
+		frappe.db.get_value("RST Details", wbm.demo_rst_data, ["party_name", "local_purchase_order"], as_dict=True)
+		if (wbm.demo_rst_data or "").strip()
+		else None
+	)
+	party = ((rst.party_name if rst else "") or wbm.party_name or "").strip()
+	po = ((rst.local_purchase_order if rst else "") or wbm.local_purchase_order or "").strip()
+	return {
+		"doctype": "GRN Note",
+		"is_local_procurement": 1,
+		"is_farmer_or_agent": 1,
+		"is_rice_dispatch": 0,
+		"pass_unique_key": "",
+		"agent_name": "",
+		"rst_no": wbm.rst_no.strip(),
+		"weigh_bridge_measurement": wbm_name,
+		"party_name": party,
+		"ppc_name": party,
+		"local_purchase_order": po or None,
+		"receipt_datetime": get_datetime(wbm.date) if wbm.date else None,
+	}
+
+
+def grn_dict_for_rice_dispatch_wbm(wbm_name: str) -> dict | None:
+	"""GRN payload for a Rice Dispatch weighment: rice sent to an RRC / FCI depo (a record only).
+
+	Validate fills weights, gate, depo, Depo Type and Lot No from the weighment.
+	"""
+	if not wbm_name or not is_rice_dispatch_wbm(wbm_name):
+		return None
+	wbm = frappe.db.get_value("Weigh Bridge Measurement", wbm_name, ["rst_no", "date"], as_dict=True)
+	if not wbm or not (wbm.rst_no or "").strip():
+		return None
+	return {
+		"doctype": "GRN Note",
+		"is_rice_dispatch": 1,
+		"is_local_procurement": 0,
+		"is_farmer_or_agent": 0,
+		"pass_unique_key": "",
+		"agent_name": "",
+		"rst_no": wbm.rst_no.strip(),
+		"weigh_bridge_measurement": wbm_name,
+		"receipt_datetime": get_datetime(wbm.date) if wbm.date else None,
+	}
 
 
 def _resolve_wbm_for_rst(rst_no: str, pass_unique_key: str | None = None) -> str | None:
@@ -1370,6 +1523,9 @@ def _render_grn_note_pass_html(doc, for_pdf: bool = False) -> str:
 			"qty_gunny_weight": _format_grn_qty(doc.gunny_weight),
 			"qty_deduction": _format_grn_qty(doc.deduction),
 			"qty_net_weight": _format_grn_qty(doc.net_weight),
+			# Truck also carried other TPs: Net Weight = RST Net Weight - Other TP Qty.
+			"qty_rst_net_weight": _format_grn_qty(doc.get("rst_net_weight")),
+			"qty_other_tp": _format_grn_qty(doc.get("other_tp_qty")),
 			"tp_pass_fulfilled": tp_pass_fulfilled,
 			"chhatni_display_status": chhatni_display_status,
 			"qr_image": qr_image_html(qr_text, size=118),

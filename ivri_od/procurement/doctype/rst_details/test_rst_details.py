@@ -702,31 +702,25 @@ class TestRSTRiceDispatchSeasonKeyNoDB(unittest.TestCase):
 			f"{MODULE}.get_season_code", return_value=season_code
 		):
 			res = resolve_rst_tp_details(lot_no, "fci  DEPOT raipur", when)
-		season_for.assert_called_once_with(when)
+		self.season_for = season_for
 		return res
 
-	def test_season_code_and_key_from_rst_date(self):
-		res = self._resolve("77")
-		self.assertEqual(res["tp_status"], "Rice Dispatch")
-		self.assertEqual(res["season_code"], "K25")
-		self.assertEqual(res["rst_unique_key"], "FCI Depot Raipur(RPR01)-K25-LOT77")
-		self.assertEqual(res["key_message"], "")
+	def test_depo_rst_has_no_season_code_and_no_key(self):
+		for lot_no in ("77", "LOT-77/2026", ""):
+			res = self._resolve(lot_no)
+			self.assertEqual(res["tp_status"], "Rice Dispatch")
+			self.assertEqual((res["season_code"], res["rst_unique_key"], res["key_message"]), ("", "", ""))
 
-	def test_rabi_season_gives_r_code(self):
-		res = self._resolve("77", season="Rabi 2025", season_code="R25")
-		self.assertEqual(res["rst_unique_key"], "FCI Depot Raipur(RPR01)-R25-LOT77")
+	def test_depo_rst_never_looks_up_a_season(self):
+		self._resolve("77")
+		self.season_for.assert_not_called()
 
-	def test_lot_no_with_lot_prefix_or_slashes_and_empty_lot_no(self):
-		self.assertEqual(self._resolve("LOT-77/2026")["rst_unique_key"], "FCI Depot Raipur(RPR01)-K25-LOT-77-2026")
-		self.assertEqual(self._resolve("")["rst_unique_key"], "FCI Depot Raipur(RPR01)-K25")
-
-	def test_no_matching_season_leaves_season_code_and_key_blank_with_the_usual_message(self):
+	def test_no_season_message_for_a_depo_rst(self):
 		res = self._resolve("77", season=None, season_code="")
-		self.assertEqual((res["season_code"], res["rst_unique_key"]), ("", ""))
-		self.assertIn("No Season Master covers the RST Date & Time", res["key_message"])
+		self.assertEqual(res["key_message"], "")
 		self.assertEqual(res["tp_status"], "Rice Dispatch")
 
-	def test_season_never_taken_from_transit_pass_data(self):
+	def test_depo_rst_never_reads_transit_pass_data(self):
 		self._resolve("77")
 		self._resolve("77", season=None, season_code="")
 		self.assertEqual(self.transit_pass_calls, [])
@@ -848,7 +842,7 @@ class TestRSTRiceDispatchWeighBridgeNoDB(unittest.TestCase):
 
 
 class TestRiceDispatchNotLinkedToGRNNoDB(unittest.TestCase):
-	"""Rice Dispatch weigh bridge records never create a GRN Note or feed Transit Pass totals."""
+	"""Rice Dispatch weigh bridge records get a Rice Delivery to Depo GRN Note, never Transit Pass totals."""
 
 	WBM = "ivri_od.procurement.doctype.weigh_bridge_measurement.weigh_bridge_measurement"
 
@@ -874,20 +868,32 @@ class TestRiceDispatchNotLinkedToGRNNoDB(unittest.TestCase):
 			self.assertEqual(m.is_rice_dispatch_wbm("WBM-1"), expected, status)
 		self.assertFalse(m.is_rice_dispatch_wbm(""))
 
-	def test_no_grn_note_is_created_for_rice_dispatch(self):
+	def test_rice_dispatch_weighment_creates_a_grn_note(self):
 		from ivri_od.procurement.doctype.weigh_bridge_measurement import weigh_bridge_measurement as m
 
-		self.db.exists.return_value = True
-		self.db.get_value.return_value = "Rice Dispatch"
-		with patch("ivri_od.procurement.doctype.grn_note.grn_note.build_auto_grn_doc_dict") as build, patch(
+		self.db.exists.side_effect = lambda doctype, filters=None: doctype == "Weigh Bridge Measurement"
+		payload = {"doctype": "GRN Note", "is_rice_dispatch": 1, "weigh_bridge_measurement": "WBM-1"}
+		with patch(
+			"ivri_od.procurement.doctype.grn_note.grn_note.build_auto_grn_doc_dict", return_value=payload
+		) as build, patch(
 			"ivri_od.procurement.doctype.grn_note.grn_note.sync_grn_from_weigh_bridge"
-		) as sync, patch.object(m, "wbm_vehicle_has_exited", return_value=True), patch.object(
-			m, "is_local_procurement_wbm", return_value=False
-		), patch.object(frappe, "get_doc", create=True) as get_doc:
+		) as sync, patch.object(frappe, "get_doc", create=True) as get_doc:
 			m._ensure_grn_note_for_weigh_bridge("WBM-1")
-		build.assert_not_called()
+		build.assert_called_once_with("WBM-1")
 		sync.assert_not_called()
-		get_doc.assert_not_called()
+		get_doc.assert_called_once_with(payload)
+		get_doc.return_value.insert.assert_called_once()
+
+	def test_rice_dispatch_payload_is_a_depo_record(self):
+		from ivri_od.procurement.doctype.grn_note import grn_note as g
+
+		self.db.exists.return_value = True
+		self.db.get_value.return_value = frappe._dict(rst_no=" R-9 ", date=None)
+		with patch.object(g, "is_rice_dispatch_wbm", return_value=True):
+			payload = g.grn_dict_for_rice_dispatch_wbm("WBM-1")
+		self.assertEqual(payload["is_rice_dispatch"], 1)
+		self.assertEqual((payload["is_local_procurement"], payload["pass_unique_key"]), (0, ""))
+		self.assertEqual((payload["rst_no"], payload["weigh_bridge_measurement"]), ("R-9", "WBM-1"))
 
 	def test_no_transit_pass_rollup_for_rice_dispatch(self):
 		from ivri_od.procurement.doctype.weigh_bridge_measurement import weigh_bridge_measurement as m
@@ -898,12 +904,14 @@ class TestRiceDispatchNotLinkedToGRNNoDB(unittest.TestCase):
 		wbm._schedule_procurement_rollup_sync()
 		self.db.after_commit.assert_not_called()
 
-	def test_grn_pending_reason_explains_rice_dispatch(self):
+	def test_grn_pending_reason_for_rice_dispatch_asks_for_tare_and_rst(self):
 		from ivri_od.procurement.doctype.weigh_bridge_measurement import weigh_bridge_measurement as m
 
 		self.db.exists.side_effect = lambda doctype, filters=None: doctype == "Weigh Bridge Measurement"
-		self.db.get_value.return_value = "Rice Dispatch"
-		self.assertEqual(m.grn_pending_reasons_for_wbm("WBM-1"), ["Rice Dispatch is not linked to a GRN Note."])
+		self.db.get_value.return_value = frappe._dict(tare_weight=0, pass_unique_key="", rst_no="", is_farmer_or_agent=0)
+		with patch.object(m, "is_rice_dispatch_wbm", return_value=True):
+			reasons = m.grn_pending_reasons_for_wbm("WBM-1")
+		self.assertEqual(reasons, ["Enter tare weight on the weigh bridge.", "Enter RST No."])
 
 
 class TestRSTRegressionSyncNoDB(unittest.TestCase):

@@ -125,6 +125,21 @@ ivri_od.mandi_book.other_tps = function (wbm_name) {
 			if (r.ppc_name && r.ppc_label) frappe.utils.add_link_title("PPC Master", r.ppc_name, r.ppc_label);
 			if (r.mill_no && r.mill_label) frappe.utils.add_link_title("Mill Master", r.mill_no, r.mill_label);
 		});
+		// Row 1 (this RST's own TP) keeps its values: its Deduction comes from RST Details / Quality Check.
+		const own_row = (rst.all_tps || []).find((r) => r.is_own) || {};
+		// Other TP rows: Net Weight = Gross Weight - Deduction, worked out while typing.
+		function net_of_row() {
+			const row = this.grid_row && this.grid_row.doc;
+			if (!row) return;
+			if (row.is_own) {
+				row.qty = own_row.qty;
+				row.deduction = own_row.deduction;
+				frappe.show_alert({ message: __("Row 1 is this RST's own TP. Its values come from the weighment."), indicator: "orange" });
+			} else {
+				row.net_weight = flt(flt(row.qty) - flt(row.deduction), 3);
+			}
+			this.grid_row.refresh();
+		}
 		const dialog = new frappe.ui.Dialog({
 			title: __("RST {0}: other TPs in this truck", [rst.rst_no || ""]),
 			size: "extra-large",
@@ -132,7 +147,7 @@ ivri_od.mandi_book.other_tps = function (wbm_name) {
 				{
 					fieldtype: "HTML",
 					fieldname: "intro",
-					options: `<p class="text-muted">${__("Gross Weight {3} QT, RST Net Weight {1} QT. Row 1 is this RST's own TP {0}: its Qty is Gross Weight less the other TPs, worked out on save. Add the other TPs below it; on save each gets its own weighment and GRN with its Qty (same RST, Quality Check and vehicle). Season left blank: {2}.", [frappe.utils.escape_html(rst.transit_pass_no || ""), format_number(rst.net_weight, null, 3), frappe.utils.escape_html(rst.season || "-"), format_number(rst.gross_weight, null, 3)])}</p>`,
+					options: `<p class="text-muted">${__("Gross Weight {3} QT, RST Net Weight {1} QT. Row 1 is this RST's own TP {0}: its Gross Weight is the truck's Gross Weight less the other TPs, worked out on save. Add the other TPs below it with their Gross Weight and Deduction; Net Weight = Gross Weight - Deduction. On save each gets its own weighment and GRN (same RST, Quality Check and vehicle). Season left blank: {2}.", [frappe.utils.escape_html(rst.transit_pass_no || ""), format_number(rst.net_weight, null, 3), frappe.utils.escape_html(rst.season || "-"), format_number(rst.gross_weight, null, 3)])}</p>`,
 				},
 				{
 					fieldname: "rows",
@@ -146,9 +161,10 @@ ivri_od.mandi_book.other_tps = function (wbm_name) {
 						{ fieldname: "transit_pass_no", fieldtype: "Data", label: __("TP No"), in_list_view: 1, reqd: 1, columns: 1 },
 						{ fieldname: "ppc_name", fieldtype: "Link", options: "PPC Master", label: __("PPC Name"), in_list_view: 1, columns: 2 },
 						{ fieldname: "mill_no", fieldtype: "Link", options: "Mill Master", label: __("Mill Name"), in_list_view: 1, columns: 2 },
-						{ fieldname: "qty", fieldtype: "Float", label: __("TP Qty (QT)"), precision: 3, in_list_view: 1, reqd: 1, columns: 1 },
+						{ fieldname: "qty", fieldtype: "Float", label: __("Gross Weight (QT)"), precision: 3, in_list_view: 1, reqd: 1, columns: 1, onchange: net_of_row },
+						{ fieldname: "deduction", fieldtype: "Float", label: __("Deduction (QT)"), precision: 3, in_list_view: 1, columns: 1, onchange: net_of_row },
 						{ fieldname: "net_weight", fieldtype: "Float", label: __("Net Weight"), precision: 3, in_list_view: 1, read_only: 1, columns: 1 },
-						{ fieldname: "weighment", fieldtype: "Link", options: "Weigh Bridge Measurement", label: __("Weighment"), in_list_view: 1, read_only: 1, columns: 2 },
+						{ fieldname: "weighment", fieldtype: "Link", options: "Weigh Bridge Measurement", label: __("Weighment"), in_list_view: 1, read_only: 1, columns: 1 },
 						{ fieldname: "is_own", fieldtype: "Check", label: __("This RST's own TP"), read_only: 1, hidden: 1 },
 					],
 				},
@@ -158,6 +174,11 @@ ivri_od.mandi_book.other_tps = function (wbm_name) {
 				// Row of the RST's own TP is shown only: its Qty follows from the other TPs.
 				const rows = (values.rows || []).filter((r) => !r.is_own && (r.transit_pass_no || flt(r.qty)));
 				const total = flt(rows.reduce((sum, r) => sum + flt(r.qty), 0), 3);
+				const bad = rows.find((r) => flt(r.deduction) < 0 || (flt(r.qty) > 0 && flt(r.deduction) >= flt(r.qty)));
+				if (bad) {
+					frappe.msgprint(__("TP No {0}: Deduction must be 0 or more and less than its Gross Weight.", [frappe.utils.escape_html(bad.transit_pass_no || "")]));
+					return;
+				}
 				if (rows.length && total >= flt(rst.net_weight, 3)) {
 					frappe.msgprint(__("The Qty of the other TPs ({0} QT) must be less than the RST Net Weight ({1} QT).", [total, flt(rst.net_weight, 3)]));
 					return;
