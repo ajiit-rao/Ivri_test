@@ -225,7 +225,7 @@ function sync_purchase_heading(frm) {
 	const heading = rice
 		? __("Rice Delivery to Depo")
 		: local
-			? __("Local Paddy Purchase")
+			? frm.doc.deal_status || __("Local Paddy Purchase")
 			: __("Government Paddy Purchase");
 	frm.set_df_property("grn_section", "label", local ? __("GRN") : heading);
 
@@ -243,17 +243,16 @@ function sync_purchase_heading(frm) {
 		);
 	}
 
-	const banner = frm.fields_dict.local_paddy_heading;
-	if (!banner) {
-		return;
+	// The banner text is set on the field itself (its HTML), so it is right whatever the page layout.
+	if (frm.fields_dict.local_paddy_heading) {
+		const html = local
+			? `<div style="font-size:32px;font-weight:700;line-height:1.15;margin:8px 0 16px;">${frappe.utils.escape_html(
+					heading
+				)}</div>`
+			: "";
+		frm.set_df_property("local_paddy_heading", "options", html);
+		frm.toggle_display("local_paddy_heading", !!local);
 	}
-	banner.$wrapper.find(".control-label").hide();
-	banner.$wrapper.find(".html-content, .control-input-wrapper, .form-group").first().html(
-		`<div style="font-size:32px;font-weight:700;line-height:1.15;margin:8px 0 16px;">${frappe.utils.escape_html(
-			heading
-		)}</div>`
-	);
-	banner.$wrapper.toggle(!!local);
 }
 
 function sync_grn_no_display(frm) {

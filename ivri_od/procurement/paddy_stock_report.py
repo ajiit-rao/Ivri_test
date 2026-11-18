@@ -37,8 +37,9 @@ def paddy_stock_query():
 		.select(qc.unloading_point, Sum(grn.net_weight))
 		.where(
 			(grn.docstatus < 2)
-			# Rice sent to a depo is not paddy in a warehouse.
+			# Rice sent to a depo is not paddy in a warehouse; private deals are records only.
 			& (grn.is_rice_dispatch == 0)
+			& (grn.is_local_procurement == 0)
 			& qc.unloading_point.isnotnull()
 			& (qc.unloading_point != "")
 		)

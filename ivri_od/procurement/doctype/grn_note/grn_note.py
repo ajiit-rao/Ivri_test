@@ -17,6 +17,9 @@ from ivri_od.procurement.doctype.weigh_bridge_measurement.weigh_bridge_measureme
 )
 
 RICE_DISPATCH_HEADING = "Rice Delivery to Depo"
+GRN_TYPE_GOVERNMENT = "Government Paddy"
+GRN_TYPE_RICE = "Rice Delivery to Depo"
+GRN_TYPE_PRIVATE = "Private Deal"
 from ivri_od.procurement.doctype.season_mapping.season_mapping import get_chhatni_from_season_mapping
 from ivri_od.procurement.doctype.season_master.season_master import resolve_season_master_name
 from ivri_od.procurement.mill_gate import get_qc_sl_no, normalize_vehicle_no
@@ -112,6 +115,7 @@ class GRNNote(Document):
 			self._sync_chhatni_from_season_mapping()
 		self._sync_tp_fulfillment_status()
 		self._set_purchase_heading()
+		self.sync_grn_type_and_trade_fields()
 
 	def _validate_duplicate_grn(self):
 		"""Prevent duplicate GRN Note creation for the same completed procurement transaction."""
@@ -224,6 +228,43 @@ class GRNNote(Document):
 			self.tp_fulfillment_status = row.tp_fulfillment_status or ""
 			self.chhatni_fulfillment_status = row.chhatni_fulfillment_status or ""
 			self.chhatni_fulfillment_remark = row.chhatni_fulfillment_remark or ""
+
+	def sync_grn_type_and_trade_fields(self):
+		"""GRN Type, and for rice / private deals the values that come from the weighment (RST → Weigh
+		Bridge → GRN): Mill Name and Commodity; for a private deal also Purchase / Sale and the deal status."""
+		if cint(self.is_rice_dispatch):
+			self.is_local_procurement = 0
+			self.grn_type = GRN_TYPE_RICE
+		elif cint(self.is_local_procurement):
+			self.grn_type = GRN_TYPE_PRIVATE
+		else:
+			self.grn_type = GRN_TYPE_GOVERNMENT
+			self.transaction_type = ""
+			self.deal_status = ""
+			return
+		wbm_name = (self.weigh_bridge_measurement or "").strip()
+		wbm = (
+			frappe.db.get_value(
+				"Weigh Bridge Measurement",
+				wbm_name,
+				["mill_name", "commodity", "transaction_type", "tp_status"],
+				as_dict=True,
+			)
+			if wbm_name
+			else None
+		)
+		if not wbm:
+			return
+		self.mill_name = (wbm.mill_name or "").strip()
+		if (wbm.commodity or "").strip():
+			self.commodity = wbm.commodity.strip()
+		if self.grn_type == GRN_TYPE_PRIVATE:
+			self.transaction_type = " ".join((wbm.transaction_type or "").split()).title()
+			self.deal_status = (wbm.tp_status or "").strip()
+			self.local_procurement_note = self.deal_status or _("Local Paddy Purchase")
+		else:
+			self.transaction_type = ""
+			self.deal_status = ""
 
 	def _set_purchase_heading(self):
 		if cint(self.is_rice_dispatch):
@@ -938,6 +979,7 @@ def sync_grn_from_weigh_bridge(wbm_name: str) -> str | None:
 			grn._sync_from_transit_pass()
 			grn._sync_entry_details_from_pass()
 
+		grn.sync_grn_type_and_trade_fields()
 		grn.flags.ignore_validate = True
 		grn.save(ignore_permissions=True)
 

@@ -387,20 +387,27 @@
 					<div class="section-box">
 						<div class="section-title">{{ _("Rice Delivery to Depo") }}</div>
 						<table class="kv">
-							<tr><td class="k">{{ _("Depo") }}</td><td class="v">{{ doc.party_name or "—" }}</td></tr>
+							<tr><td class="k">{{ _("Depo") }}</td><td class="v">{{ doc.depo_name or doc.party_name or "—" }}</td></tr>
 							<tr><td class="k">{{ _("Depo Code") }}</td><td class="v">{{ doc.depo or "—" }}</td></tr>
 							<tr><td class="k">{{ _("Depo Type") }}</td><td class="v">{{ doc.depo_type or "—" }}</td></tr>
 							<tr><td class="k">{{ _("Lot No") }}</td><td class="v">{{ doc.lot_no or "—" }}</td></tr>
+							<tr><td class="k">{{ _("Date & Time") }}</td><td class="v">{{ receipt_datetime_display or "—" }}</td></tr>
+							<tr><td class="k">{{ _("Commodity") }}</td><td class="v">{{ doc.commodity or "—" }}</td></tr>
+							<tr><td class="k">{{ _("Mill Name") }}</td><td class="v">{{ doc.mill_name or "—" }}{% if doc.mill and doc.mill != doc.mill_name %} ({{ doc.mill }}){% endif %}</td></tr>
 						</table>
 					</div>
 					{% elif doc.is_local_procurement %}
 					<div class="section-box">
-						<div class="section-title">{{ _("Local Procurement Details") }}</div>
+						<div class="section-title">{{ _("Private Deal") }}</div>
 						<table class="kv">
-							<tr><td class="k">{{ _("RST No") }}</td><td class="v">{{ doc.rst_no or "—" }}</td></tr>
-							<tr><td class="k">{{ _("Agent Name") }}</td><td class="v">{{ doc.agent_name or "—" }}</td></tr>
-							<tr><td class="k">{{ _("Local Purchase Order") }}</td><td class="v">{{ doc.local_purchase_order or "—" }}</td></tr>
-							<tr><td class="k">{{ _("Mill Name") }}</td><td class="v">{{ doc.mill_name or "—" }}</td></tr>
+							<tr class="highlight-row"><td class="k">{{ _("Transaction Type") }}</td><td class="v highlight-val">{{ doc.transaction_type or "—" }}</td></tr>
+							<tr><td class="k">{{ _("Commodity") }}</td><td class="v">{{ doc.commodity or "—" }}</td></tr>
+							<tr><td class="k">{{ _("Party Name") }}</td><td class="v">{{ doc.party_name or "—" }}</td></tr>
+							<tr><td class="k">{{ _("Mill Name") }}</td><td class="v">{{ doc.mill_name or "—" }}{% if doc.mill and doc.mill != doc.mill_name %} ({{ doc.mill }}){% endif %}</td></tr>
+							<tr><td class="k">{{ _("Date & Time") }}</td><td class="v">{{ receipt_datetime_display or "—" }}</td></tr>
+							{% if doc.local_purchase_order %}
+							<tr><td class="k">{{ _("Local Purchase Order") }}</td><td class="v">{{ doc.local_purchase_order }}</td></tr>
+							{% endif %}
 						</table>
 					</div>
 					{% else %}
@@ -426,7 +433,9 @@
 							<tr><td class="k">{{ _("Vehicle") }}</td><td class="v">{{ doc.vehicle_no or "—" }}</td></tr>
 							<tr><td class="k">{{ _("Driver Name") }}</td><td class="v">{{ doc.driver_name or "—" }}</td></tr>
 							<tr><td class="k">{{ _("Driver Mobile No") }}</td><td class="v">{{ doc.mobile_no or "—" }}</td></tr>
+							{% if not doc.is_rice_dispatch and not doc.is_local_procurement %}
 							<tr><td class="k">{{ _("Party Name") }}</td><td class="v">{{ doc.party_name or "—" }}</td></tr>
+							{% endif %}
 							<tr><td class="k">{{ _("Arrival Date & Time") }}</td><td class="v">{{ arrival_datetime_display or "—" }}</td></tr>
 							<tr><td class="k">{{ _("Gate Exit Date & Time") }}</td><td class="v">{{ gate_exit_datetime_display or "—" }}</td></tr>
 						</table>
@@ -440,8 +449,10 @@
 						<table class="kv">
 							<tr><td class="k">{{ _("RST No") }}</td><td class="v">{{ doc.rst_no or "—" }}</td></tr>
 							<tr><td class="k">{{ _("Gunny Type") }}</td><td class="v">{{ doc.gunny_type or "—" }}</td></tr>
+							{% if not doc.is_rice_dispatch and not doc.is_local_procurement %}
 							<tr><td class="k">{{ _("Jute Bags") }}</td><td class="v">{{ doc.jute_bags if doc.jute_bags is not none else 0 }}</td></tr>
 							<tr><td class="k">{{ _("Plastic Bags") }}</td><td class="v">{{ doc.plastic_bags if doc.plastic_bags is not none else 0 }}</td></tr>
+							{% endif %}
 							<tr><td class="k">{{ _("Total Bags") }}</td><td class="v">{{ doc.total_bags or 0 }}</td></tr>
 							<tr><td class="k">{{ _("Load Weight (QT)") }}</td><td class="v">{{ qty_load_weight or doc.gross_vehicle_weight or "—" }}{% if doc.gross_vehicle_weight %} QT{% endif %}</td></tr>
 							<tr><td class="k">{{ _("Tare Weight (QT)") }}</td><td class="v">{{ qty_tare_weight or doc.tare_weight or "—" }}{% if doc.tare_weight %} QT{% endif %}</td></tr>
@@ -459,6 +470,8 @@
 						</table>
 					</div>
 
+					{# No Quality Check on a rice or private GRN. #}
+					{% if not doc.is_rice_dispatch and not doc.is_local_procurement %}
 					<div class="section-box">
 						<div class="section-title">{{ _("Quality Check") }}</div>
 						<table class="kv">
@@ -475,6 +488,7 @@
 							<tr><td class="k">{{ _("Paddy Returned (Bags)") }}</td><td class="v">{{ doc.paddy_returned if doc.paddy_returned is not none else "—" }}</td></tr>
 						</table>
 					</div>
+					{% endif %}
 				</td>
 			</tr>
 		</table>

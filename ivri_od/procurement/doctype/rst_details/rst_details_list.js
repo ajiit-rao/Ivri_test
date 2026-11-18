@@ -43,7 +43,10 @@ const RST_STATUS_FILTERS = {
 	"TP No Not Received": [["tp_status", "=", "TP No Not Received"]],
 	"PPC Mismatch": [["tp_status", "=", "PPC Mismatch"]],
 	"Invalid TP No": [["tp_status", "=", "Invalid TP No"]],
-	"Local Paddy Purchase": [["tp_status", "=", "Local Paddy Purchase"]],
+	// Private deals: status is "Local {Commodity} {Transaction Type}", e.g. "Local BRAN Sale".
+	"Local (Private) - All": [["tp_status", "like", "Local%"]],
+	"Local - Purchase": [["tp_status", "like", "Local% Purchase"]],
+	"Local - Sale": [["tp_status", "like", "Local% Sale"]],
 	"Rice Delivery to Depo": [
 		["tp_status", "=", "Rice Dispatch"],
 		["lot_no", "is", "set"],

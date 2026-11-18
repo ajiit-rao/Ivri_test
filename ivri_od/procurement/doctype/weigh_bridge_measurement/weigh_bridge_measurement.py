@@ -18,6 +18,7 @@ from ivri_od.procurement.other_tp import (
 	validate_split_weighment,
 )
 from ivri_od.procurement.doctype.rst_details.rst_details import (
+	get_depo_for_party,
 	get_rst_agent_name,
 	is_private_procurement_rst,
 )
@@ -241,7 +242,9 @@ def compute_wbm_tp_status(doc) -> str:
 	"""RST party on transit pass but no TP No → TP Not Received; pass linked → TP Received."""
 	from ivri_od.procurement.doctype.rst_details.rst_details import (
 		is_private_procurement_rst,
+		is_private_status,
 		party_found_awaiting_tp,
+		private_status_text,
 	)
 
 	rst_link = (getattr(doc, "demo_rst_data", None) or "").strip()
@@ -250,7 +253,10 @@ def compute_wbm_tp_status(doc) -> str:
 		if (rst.tp_status or "") == TP_STATUS_RICE_DISPATCH:
 			return TP_STATUS_RICE_DISPATCH
 		if is_private_procurement_rst(rst):
-			return TP_STATUS_LOCAL
+			# Private deal: same text as the RST, e.g. "Local BRAN Sale".
+			if is_private_status(rst.tp_status):
+				return rst.tp_status
+			return private_status_text(rst.commodity, rst.transaction_type)
 		if party_found_awaiting_tp(rst):
 			return TP_STATUS_NOT_RECEIVED
 		if (getattr(doc, "pass_unique_key", None) or "").strip():
@@ -264,7 +270,8 @@ def compute_wbm_tp_status(doc) -> str:
 	if cint(getattr(doc, "is_farmer_or_agent", 0)) and not (
 		getattr(doc, "pass_unique_key", None) or ""
 	).strip():
-		return TP_STATUS_LOCAL
+		# Manual private weighment (no RST).
+		return private_status_text(getattr(doc, "commodity", None), getattr(doc, "transaction_type", None))
 	if (getattr(doc, "pass_unique_key", None) or "").strip():
 		return TP_STATUS_RECEIVED
 	if rst_link:
@@ -361,12 +368,14 @@ class WeighBridgeMeasurement(Document):
 			return
 		self._sync_date_from_rst()
 		self._sync_party_from_rst()
+		self._sync_mill_from_rst()
 		ensure_doc_datetime(self, "date", default_now=True)
 		self._sync_and_validate_weighment()
 		self._sync_weighment_datetime()
 		self._apply_rst_private_procurement_mode()
 		self._sync_rst_no_from_rst_details()
 		self._sync_tp_status()
+		self._sync_depo_name()
 		self._sync_source_mode_fields()
 		self._sync_agent_name_from_rst_details()
 		self._validate_pass_unique_key()
@@ -414,6 +423,15 @@ class WeighBridgeMeasurement(Document):
 	def _sync_tp_status(self):
 		self.tp_status = compute_wbm_tp_status(self)
 
+	def _sync_depo_name(self):
+		"""Rice Dispatch: Depo Name is the Depo Master name of the Party Name (else the Party Name as typed)."""
+		if (self.tp_status or "") != TP_STATUS_RICE_DISPATCH:
+			self.depo_name = ""
+			return
+		party = (self.party_name or "").strip()
+		depo = get_depo_for_party(party)
+		self.depo_name = (depo.get("depo_name") or "").strip() if depo else party
+
 	def _sync_measurement_columns(self):
 		"""Older reports read the measurement date and time columns: keep them equal to Date & Time."""
 		if not self.date or not (self.get("demo_rst_data") or "").strip():
@@ -435,6 +453,14 @@ class WeighBridgeMeasurement(Document):
 		party = (frappe.db.get_value("RST Details", rst_name, "party_name") or "").strip()
 		if party:
 			self.party_name = party
+
+	def _sync_mill_from_rst(self):
+		"""Mill No / Mill Name always follow the RST Mill No (so an RST correction reaches the GRN)."""
+		rst_name = (self.get("demo_rst_data") or "").strip()
+		if not rst_name:
+			return
+		given = frappe.db.get_value("RST Details", rst_name, "mill_name")
+		self.mill, self.mill_name = resolve_mill(given)
 
 	def _sync_date_from_rst(self):
 		"""Date & Time of a weighment made from an RST is the RST Details Date & Time (not today's date)."""
@@ -603,7 +629,22 @@ class WeighBridgeMeasurement(Document):
 			row.weight_per_jute_kg = _trim_qty(row.weight_per_jute_kg)
 			row.weight_per_plastic_kg = _trim_qty(row.weight_per_plastic_kg)
 
+	def _is_rice_dispatch(self) -> bool:
+		"""Rice to a depo, known from the saved status or (before it is set) from the linked RST."""
+		if (self.tp_status or "") == TP_STATUS_RICE_DISPATCH:
+			return True
+		rst_link = (self.get("demo_rst_data") or "").strip()
+		return bool(rst_link) and (
+			frappe.db.get_value("RST Details", rst_link, "tp_status") == TP_STATUS_RICE_DISPATCH
+		)
+
 	def _sync_quality_check_link(self):
+		if self._is_rice_dispatch():
+			# Rice is not tested: no Quality Check, so a paddy QC of the same truck is never linked.
+			self.quality_check = ""
+			self.quality_test = ""
+			self.slno_of_qc = 0
+			return
 		qc = self._resolve_quality_check_for_wbm()
 		if not qc:
 			self.quality_check = ""
@@ -976,6 +1017,17 @@ def get_quality_check_for_wbm(
 		"same_truck_as_transit_pass": same_truck_as_transit_pass,
 	}
 
+	if wbm_name and is_rice_dispatch_wbm(wbm_name):
+		# Rice is not tested: no Quality Check and no bag lines from one.
+		return {
+			"quality_check": "",
+			"quality_test": "",
+			"slno_of_qc": 0,
+			"bag_details": [],
+			"gate_entry": (frappe.db.get_value("Weigh Bridge Measurement", wbm_name, "gate_entry") or "").strip(),
+			"is_rice_dispatch": 1,
+		}
+
 	wbm_gate = ""
 	if wbm_name and frappe.db.exists("Weigh Bridge Measurement", wbm_name):
 		wbm_gate = (frappe.db.get_value("Weigh Bridge Measurement", wbm_name, "gate_entry") or "").strip()
@@ -1134,7 +1186,7 @@ def sync_weigh_bridge_quality_for_vehicle(
 ):
 	"""Update WBM rows linked to this vehicle / gate entry when Quality Check changes."""
 	vehicle_no = normalize_vehicle_no(vehicle_no)
-	names = find_wbm_names_for_quality_sync(vehicle_no, quality_check)
+	names = [name for name in find_wbm_names_for_quality_sync(vehicle_no, quality_check) if not is_rice_dispatch_wbm(name)]
 	if not names:
 		return
 
@@ -1193,6 +1245,8 @@ def persist_quality_check_sync(name, actual_truck_no=None, truck_no_in_tp=None):
 	name = (name or "").strip()
 	if not name or not frappe.db.exists("Weigh Bridge Measurement", name):
 		return {}
+	if is_rice_dispatch_wbm(name):
+		return {}  # rice is not tested
 
 	row = None
 	if actual_truck_no is None and truck_no_in_tp is None:
@@ -1294,8 +1348,32 @@ def rst_date_time(rst_name: str):
 	return None
 
 
+def resolve_mill(given: str | None) -> tuple[str | None, str]:
+	"""(Mill Master name, Mill Name) for an RST Mill No: a Mill Master code, or a mill name as typed.
+
+	Matched by code, else Display Name / Company / Short Name (case and extra spaces ignored).
+	Not in Mill Master: (None, the text as given).
+	"""
+	given = (given or "").strip()
+	if not given:
+		return None, ""
+	mill = given if frappe.db.exists("Mill Master", given) else None
+	if not mill:
+		rows = frappe.db.sql(
+			"""select name from `tabMill Master`
+			where lower(trim(display_name)) = %(t)s or lower(trim(company)) = %(t)s
+			or lower(trim(short_name)) = %(t)s
+			limit 1""",
+			{"t": " ".join(given.split()).casefold()},
+		)
+		mill = rows[0][0] if rows else None
+	if not mill:
+		return None, given
+	return mill, (frappe.db.get_value("Mill Master", mill, "display_name") or given).strip()
+
+
 def is_rice_dispatch_wbm(wbm_name: str) -> bool:
-	"""Rice Dispatch weighment (rice to a depo): its GRN Note is a Rice Delivery to Depo record, and it is
+	"""Rice Dispatch weighment (rice to a depo): its GRN Note has GRN Type "Rice Delivery to Depo", and it is
 	never part of Transit Pass totals."""
 	if not wbm_name:
 		return False
@@ -1414,7 +1492,8 @@ def _ensure_grn_note_for_weigh_bridge(wbm_name: str):
 		sync_grn_from_weigh_bridge(wbm_name)
 		return
 
-	# GRN is generated for Transit Pass, Local Paddy Purchase and Rice Dispatch (depo) weighments.
+	# One GRN Note for every weighment: government paddy (Transit Pass), rice to a depo, or a private deal.
+	# Its GRN Type tells them apart.
 	# GRN is generated as soon as the tare weight is entered (build_auto_grn_doc_dict checks it). It does
 	# not wait for the Quality Check or the Gate Exit: they are attached to this GRN when they arrive.
 	payload = build_auto_grn_doc_dict(wbm_name)
@@ -1477,13 +1556,19 @@ def ensure_grn_note_for_weigh_bridge(wbm_name: str):
 	if not wbm_name:
 		return {}
 	_ensure_grn_note_for_weigh_bridge(wbm_name)
+	grn_doctype = "GRN Note"
 	grn_name = frappe.db.get_value(
 		"GRN Note",
 		{"weigh_bridge_measurement": wbm_name, "docstatus": ["<", 2]},
 		"name",
 	)
 	pending = grn_pending_reasons_for_wbm(wbm_name) if not grn_name else []
-	return {"grn_name": grn_name or "", "pending_reasons": pending, "synced": bool(grn_name)}
+	return {
+		"grn_name": grn_name or "",
+		"grn_doctype": grn_doctype,
+		"pending_reasons": pending,
+		"synced": bool(grn_name),
+	}
 
 
 def _ensure_wbm_bag_details_from_qc(name: str, data: dict | None = None):

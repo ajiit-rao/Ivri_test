@@ -23,10 +23,14 @@
   "party_name",
   "local_purchase_order",
   "lot_no",
+  "depo_name",
+  "mill",
+  "mill_name",
   "quality_check",
   "column_break_weighment",
   "date",
   "tp_status",
+  "transaction_type",
   "quality_test",
   "truck_section",
   "truck_no_in_tp",
@@ -77,7 +81,7 @@
    "default": "0",
    "fieldname": "is_farmer_or_agent",
    "fieldtype": "Check",
-   "label": "Local Paddy Purchase",
+   "label": "Private (Local) Deal",
    "read_only": 1
   },
   {
@@ -90,7 +94,7 @@
    "read_only": 1
   },
   {
-   "depends_on": "eval:!doc.is_farmer_or_agent",
+   "depends_on": "eval:!doc.is_farmer_or_agent && doc.tp_status != 'Rice Dispatch'",
    "fieldname": "transit_pass_section",
    "fieldtype": "Section Break",
    "label": "Transit Pass"
@@ -180,12 +184,40 @@
    "in_standard_filter": 1
   },
   {
+   "depends_on": "eval:doc.tp_status=='Rice Dispatch'",
+   "description": "Depo the rice goes to (RST Party Name, matched with Depo Master).",
+   "fieldname": "depo_name",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Depo Name",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.mill || doc.mill_name",
+   "description": "Mill No from the RST, when it is in Mill Master.",
+   "fieldname": "mill",
+   "fieldtype": "Link",
+   "label": "Mill No",
+   "options": "Mill Master",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.mill || doc.mill_name",
+   "description": "From the RST Mill No.",
+   "fieldname": "mill_name",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Mill Name",
+   "read_only": 1
+  },
+  {
    "fieldname": "quality_check",
    "fieldtype": "Link",
    "in_standard_filter": 1,
    "label": "Quality Check SL NO",
    "options": "Quality Check",
-   "read_only": 1
+   "read_only": 1,
+   "depends_on": "eval:doc.tp_status != 'Rice Dispatch'"
   },
   {
    "fieldname": "column_break_weighment",
@@ -202,11 +234,20 @@
   },
   {
    "fieldname": "tp_status",
-   "fieldtype": "Select",
+   "fieldtype": "Data",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Status",
-   "options": "\nTP Received\nTP Not Received\nPPC Mismatch\nLocal Procurement\nRice Dispatch",
+   "read_only": 1,
+   "description": "TP Received / TP Not Received / PPC Mismatch / Rice Dispatch, or a private deal: \"Local {Commodity} {Transaction Type}\"."
+  },
+  {
+   "fetch_from": "demo_rst_data.transaction_type",
+   "fieldname": "transaction_type",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Transaction Type",
    "read_only": 1
   },
   {
@@ -216,7 +257,8 @@
    "label": "Quality Test",
    "options": "\nPending QC\nAccepted\nRejected\nPartially Accepted",
    "read_only": 1,
-   "in_list_view": 1
+   "in_list_view": 1,
+   "depends_on": "eval:doc.tp_status != 'Rice Dispatch'"
   },
   {
    "fieldname": "truck_section",
@@ -349,6 +391,7 @@
   {
    "collapsible": 1,
    "collapsible_depends_on": "eval:doc.other_tp_qty || doc.split_from_weighment",
+   "depends_on": "eval:doc.tp_status != 'Rice Dispatch'",
    "description": "Fill only when this truck also carried paddy of other Transit Passes. On save, a weighment and a GRN are made for each of them with its Qty, and their Qty is taken out of this TP's Net Weight.",
    "fieldname": "other_tp_section",
    "fieldtype": "Section Break",
@@ -408,7 +451,8 @@
   },
   {
    "fieldname": "section_break_rnxd",
-   "fieldtype": "Section Break"
+   "fieldtype": "Section Break",
+   "depends_on": "eval:doc.tp_status != 'Rice Dispatch'"
   },
   {
    "fieldname": "bag_weight_details",
@@ -454,7 +498,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-11 17:00:00.000000",
+ "modified": "2026-11-18 16:00:00.000000",
  "modified_by": "Administrator",
  "module": "Procurement",
  "name": "Weigh Bridge Measurement",

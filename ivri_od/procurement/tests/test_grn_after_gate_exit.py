@@ -118,6 +118,9 @@ class TestVisitOfWeighment(_NoSite):
 
 class TestCreateGrnOnGateExit(_NoSite):
 	def test_creates_for_linked_and_unlinked_weighments_of_this_visit(self):
+		# Government paddy weighments (rice and private deals have their own GRN forms).
+		self.patch(f"{MODULE}.is_rice_dispatch_wbm", return_value=False)
+		self.patch(f"{MODULE}.is_local_procurement_wbm", return_value=False)
 		self.db.get_value.side_effect = lambda doctype, *a, **k: (
 			frappe._dict(vehicle_no=" od03ab4135 ", creation="2026-10-22 09:00:00")
 			if doctype == "Gate Entry"

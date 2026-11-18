@@ -144,8 +144,10 @@ class TestRSTDetailsTPLogicNoDB(unittest.TestCase):
 		doc.meta = MagicMock()  # meta is a cached_property, so this skips the database
 		with patch(f"{MODULE}.party_matches_any_transit_pass_ppc", return_value=False):
 			doc._set_tp_status()
-		self.assertEqual(doc.tp_status, "Local Paddy Purchase")
-		self.assertEqual(doc.mill_name, "")
+		# Private deal with no Commodity / Transaction Type: status is just "Local".
+		self.assertEqual(doc.tp_status, "Local")
+		# A private deal keeps the Mill No given on the RST; it never has an agent.
+		self.assertEqual(doc.mill_name, "OLD-MILL")
 		self.assertEqual(doc.agent_name, "")
 
 	def test_party_lookup_uses_authoritative_match_and_is_cached(self):
@@ -564,7 +566,35 @@ class TestRSTRiceDispatchNoDB(unittest.TestCase):
 
 	def test_local_paddy_purchase_unchanged(self):
 		with patch(f"{MODULE}.party_matches_any_transit_pass_ppc", return_value=False):
-			self.assertEqual(resolve_rst_tp_details("", "Some Farmer")["tp_status"], "Local Paddy Purchase")
+			res = resolve_rst_tp_details("", "Some Farmer", commodity="Paddy", transaction_type="PURCHASE")
+			self.assertEqual(res["tp_status"], "Local Paddy Purchase")
+
+	def test_private_deal_status_text(self):
+		from ivri_od.procurement.doctype.rst_details.rst_details import is_private_status, private_status_text
+
+		cases = {
+			("Paddy", "PURCHASE"): "Local Paddy Purchase",
+			("BRAN", "SALE"): "Local BRAN Sale",
+			("CMR BOIL  NON FRK RICE", " sale "): "Local CMR BOIL NON FRK RICE Sale",
+			("", "PURCHASE"): "Local Purchase",
+			("BRAN", ""): "Local BRAN",
+			(None, None): "Local",
+		}
+		for (commodity, deal), expected in cases.items():
+			self.assertEqual(private_status_text(commodity, deal), expected)
+			self.assertTrue(is_private_status(expected))
+		for other in ("TP Received", "Rice Dispatch", "Localities", ""):
+			self.assertFalse(is_private_status(other))
+
+	def test_private_sale_of_any_commodity(self):
+		with patch(f"{MODULE}.party_matches_any_transit_pass_ppc", return_value=False):
+			res = resolve_rst_tp_details("0", "Husk Buyer", commodity="HUSK", transaction_type="SALE")
+		self.assertEqual(res["tp_status"], "Local HUSK Sale")
+
+	def test_tp_zero_with_ppc_is_government_not_private(self):
+		with patch(f"{MODULE}.party_matches_any_transit_pass_ppc", return_value=True):
+			res = resolve_rst_tp_details("0", "AGALPUR(S1)", commodity="Paddy", transaction_type="PURCHASE")
+		self.assertEqual(res["tp_status"], "TP No Not Received")
 
 	def test_tp_no_zero_is_treated_as_no_tp_no(self):
 		# "0" is typed when the truck has no TP: same result as an empty TP No.
@@ -572,7 +602,7 @@ class TestRSTRiceDispatchNoDB(unittest.TestCase):
 			with patch(f"{MODULE}.party_matches_any_transit_pass_ppc", return_value=True):
 				self.assertEqual(resolve_rst_tp_details(tp_no, "AGALPUR(S1)")["tp_status"], "TP No Not Received")
 			with patch(f"{MODULE}.party_matches_any_transit_pass_ppc", return_value=False):
-				self.assertEqual(resolve_rst_tp_details(tp_no, "Some Farmer")["tp_status"], "Local Paddy Purchase")
+				self.assertEqual(resolve_rst_tp_details(tp_no, "Some Farmer")["tp_status"], "Local")
 		# a real TP No such as "10" is not blank
 		from ivri_od.procurement.doctype.rst_details.rst_details import tp_no_is_blank
 
@@ -658,7 +688,8 @@ class TestRSTRiceDispatchNoDB(unittest.TestCase):
 			doc._set_tp_status()
 		for lookup in (find, exists, find_rst, matching):
 			lookup.assert_not_called()
-		self.assertEqual((doc.tp_status, doc.tp_no, doc.mill_name, doc.agent_name), ("Rice Dispatch", "295", "", ""))
+		# Rice Dispatch keeps the Mill No given on the RST (rice leaves that mill); no agent.
+		self.assertEqual((doc.tp_status, doc.tp_no, doc.mill_name, doc.agent_name), ("Rice Dispatch", "295", "OLD", ""))
 		self.assertEqual(doc.tp_quantity, 0)
 
 	def test_mill_check_does_not_apply_to_rice_dispatch(self):
@@ -1077,13 +1108,13 @@ class TestRSTDetailsTPLogic(FrappeTestCase):
 		self.assertEqual(res_code["notification"], "Enter Correct PPC Name.")
 
 	def test_rule_4_tp_empty_party_matches_no_ppc(self):
-		"""4. TP No. is empty and Party Name matches no Transit Pass PPC -> status Local Paddy Purchase."""
-		res = resolve_rst_tp_details("", "Completely Random Farmer Name")
+		"""4. TP No. is empty and Party Name matches no Transit Pass PPC -> private deal "Local ..."."""
+		res = resolve_rst_tp_details("", "Completely Random Farmer Name", commodity="Paddy", transaction_type="PURCHASE")
 		self.assertEqual(res["tp_status"], "Local Paddy Purchase")
 
 		# With spaces
 		res_spaces = resolve_rst_tp_details("   ", "   Local Paddy Vendor   ")
-		self.assertEqual(res_spaces["tp_status"], "Local Paddy Purchase")
+		self.assertEqual(res_spaces["tp_status"], "Local")
 
 	def test_rule_5_tp_entered_not_found(self):
 		"""5. TP No. is entered but not found in Transit Pass -> status Invalid TP No."""
@@ -1104,7 +1135,7 @@ class TestRSTDetailsTPLogic(FrappeTestCase):
 		self.assertEqual(res3["notification"], "Enter Correct PPC Name.")
 		self.assertEqual(res3["tp_status"], "PPC Mismatch")
 
-		res4 = fetch_mill_and_agent_from_tp(tp_no="", party_name="Farmer")
+		res4 = fetch_mill_and_agent_from_tp(tp_no="", party_name="Farmer", commodity="Paddy", transaction_type="PURCHASE")
 		self.assertEqual(res4["tp_status"], "Local Paddy Purchase")
 
 		res5 = fetch_mill_and_agent_from_tp(tp_no="999999", party_name=self.ppc_name)
@@ -1171,6 +1202,8 @@ class TestRSTDetailsTPLogic(FrappeTestCase):
 		doc.rst_no = rst_no
 		doc.party_name = "Independent Local Farmer"
 		doc.tp_no = ""
+		doc.commodity = "Paddy"
+		doc.transaction_type = "PURCHASE"
 		doc.gross_vehicle_weight_qt = 30
 		doc.tare_vehicle_weight_qt = 10
 		doc.insert(ignore_permissions=True)

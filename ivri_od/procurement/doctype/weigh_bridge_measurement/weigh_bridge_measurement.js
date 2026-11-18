@@ -544,6 +544,10 @@ function persist_wbm_bag_details_from_qc(frm) {
 }
 
 function sync_quality_from_qc(frm) {
+	// Rice to a depo is not tested: no Quality Check is looked up or linked.
+	if (frm.doc.tp_status === "Rice Dispatch") {
+		return;
+	}
 	if (frm._sync_quality_from_qc_pending) {
 		frm._sync_quality_from_qc_queued = true;
 		return;

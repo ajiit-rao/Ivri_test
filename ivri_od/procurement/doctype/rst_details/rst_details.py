@@ -86,7 +86,13 @@ class RSTDetails(Document):
 			self.lot_no = (self.tp_no or "").strip() if is_depo else ""
 
 	def _set_tp_status(self):
-		details = resolve_rst_tp_details(self.tp_no, self.party_name, self.entry_datetime or self.entry_date)
+		details = resolve_rst_tp_details(
+			self.tp_no,
+			self.party_name,
+			self.entry_datetime or self.entry_date,
+			commodity=self.get("commodity"),
+			transaction_type=self.get("transaction_type"),
+		)
 
 		# Ambiguous Transit Pass only: never pick one of several passes.
 		if details.get("validation_message"):
@@ -101,7 +107,11 @@ class RSTDetails(Document):
 			title = _("Invalid TP No") if self.tp_status == "Invalid TP No" else _("PPC Mismatch")
 			frappe.msgprint(details["notification"], title=title, indicator="orange", alert=True)
 		# Never keep a mill or agent that the current TP No / Party Name does not resolve.
-		self.mill_name = details.get("mill_name") or ""
+		# Rice Dispatch and private deals: the Mill No comes with the RST, so it is kept as given.
+		if self.tp_status == RICE_DISPATCH_STATUS or is_private_status(self.tp_status):
+			self.mill_name = (self.mill_name or "").strip()
+		else:
+			self.mill_name = details.get("mill_name") or ""
 		self.agent_name = details.get("agent_name") or ""
 		self.tp_quantity = flt(details.get("tp_quantity"))
 		self._set_season_code_and_rst_unique_key(details)
@@ -497,14 +507,38 @@ def tp_no_is_blank(tp_no) -> bool:
 	return not text or set(text) == {"0"}
 
 
-def resolve_rst_tp_details(tp_no: str | None, party_name: str | None, rst_datetime=None) -> dict:
+PRIVATE_STATUS_PREFIX = "Local"
+
+
+def private_status_text(commodity: str | None, transaction_type: str | None) -> str:
+	"""Status of a private deal: "Local {Commodity} {Transaction Type}", e.g. "Local Paddy Purchase",
+	"Local BRAN Sale". Commodity is kept as typed, the type is in Title case; an empty part is left out."""
+	commodity = " ".join((commodity or "").split())
+	deal = " ".join((transaction_type or "").split()).title()
+	return " ".join(part for part in (PRIVATE_STATUS_PREFIX, commodity, deal) if part)
+
+
+def is_private_status(status: str | None) -> bool:
+	"""True for a private deal status ("Local", "Local Paddy Purchase", "Local BRAN Sale" ...)."""
+	status = (status or "").strip()
+	return status == PRIVATE_STATUS_PREFIX or status.startswith(PRIVATE_STATUS_PREFIX + " ")
+
+
+def resolve_rst_tp_details(
+	tp_no: str | None,
+	party_name: str | None,
+	rst_datetime=None,
+	commodity: str | None = None,
+	transaction_type: str | None = None,
+) -> dict:
 	"""Implement the 5 RST TP & Party Name rules:
 	1. TP No. exists in Transit Pass and Party Name identifies its PPC (name, code or name plus code; case, spaces
 	   and brackets ignored) -> status TP Received, and Party Name is saved as the PPC Master NAME(CODE).
 	   A name that fits several PPCs is never guessed: validation_message asks for NAME(CODE).
 	2. TP No. is empty but Party Name matches any Transit Pass PPC -> status TP No Not Received.
 	3. TP No. exists but Party Name is not its PPC -> status PPC Mismatch (notification).
-	4. TP No. is empty and Party Name matches no Transit Pass PPC -> status Local Paddy Purchase.
+	4. TP No. is empty and Party Name matches no Transit Pass PPC and no depo -> a private deal (buying or
+	   selling anything): status "Local {Commodity} {Transaction Type}", e.g. "Local BRAN Sale".
 	5. TP No. is entered but not found in Transit Pass -> status Invalid TP No (notification).
 	   Checked before rule 3, so an unknown TP No is never reported as a PPC mismatch.
 	Only several passes matching the same TP No and Party Name set validation_message (save is blocked).
@@ -561,8 +595,8 @@ def resolve_rst_tp_details(tp_no: str | None, party_name: str | None, rst_dateti
 			if agent:
 				result["agent_name"] = agent
 		else:
-			# Rule 4: TP No. is empty and Party Name matches no Transit Pass PPC -> status Local Paddy Purchase
-			result["tp_status"] = "Local Paddy Purchase"
+			# Rule 4: TP No. is empty and Party Name matches no Transit Pass PPC -> private deal
+			result["tp_status"] = private_status_text(commodity, transaction_type)
 		return result
 
 	# TP No is entered
@@ -691,11 +725,25 @@ def check_private_procurement(tp_no=None, party_name=None):
 
 
 @frappe.whitelist()
-def fetch_mill_and_agent_from_tp(tp_no=None, party_name=None, ppc_name=None, entry_datetime=None):
+def fetch_mill_and_agent_from_tp(
+	tp_no=None, party_name=None, ppc_name=None, entry_datetime=None, commodity=None, transaction_type=None
+):
 	"""Recalculate TP status, mill, agent, Season Code and RST Unique Key; validate TP vs PPC."""
 	party_name = (party_name or ppc_name or "").strip()
 	tp_no = (tp_no or "").strip()
-	return resolve_rst_tp_details(tp_no, party_name, entry_datetime or None)
+	return resolve_rst_tp_details(
+		tp_no, party_name, entry_datetime or None, commodity=commodity, transaction_type=transaction_type
+	)
+
+
+@frappe.whitelist()
+def is_ppc_party(party_name=None):
+	"""True when Party Name is a Transit Pass PPC (not a depo). The RST form shows Season Code
+	and RST Unique Key only then."""
+	party_name = (party_name or "").strip()
+	if not party_name or party_matches_depo_master(party_name):
+		return False
+	return party_matches_any_transit_pass_ppc(party_name)
 
 
 @frappe.whitelist()

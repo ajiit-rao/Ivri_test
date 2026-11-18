@@ -47,8 +47,8 @@ class TestEditPropagationNoDB(unittest.TestCase):
 
 	# --- Weigh Bridge -> GRN
 
-	def test_existing_local_grn_keeps_syncing(self):
-		"""Local paddy purchase GRN used to be skipped, so a corrected RST never reached it."""
+	def test_existing_private_grn_keeps_syncing(self):
+		"""A private deal's GRN Note keeps syncing, so an RST correction reaches it."""
 		self.db.exists.return_value = True
 		sync = MagicMock()
 		with patch(f"{WBM}.is_local_procurement_wbm", return_value=True), patch(
@@ -56,15 +56,6 @@ class TestEditPropagationNoDB(unittest.TestCase):
 		), patch("ivri_od.procurement.doctype.grn_note.grn_note.sync_grn_from_weigh_bridge", sync):
 			wbm_module._ensure_grn_note_for_weigh_bridge("WBM-1")
 		sync.assert_called_once_with("WBM-1")
-
-	def test_local_weighment_without_grn_still_creates_none(self):
-		self.db.exists.side_effect = lambda doctype, *a, **k: doctype == "Weigh Bridge Measurement"
-		build = MagicMock()
-		with patch(f"{WBM}.is_local_procurement_wbm", return_value=True), patch(
-			f"{WBM}.is_rice_dispatch_wbm", return_value=False
-		), patch("ivri_od.procurement.doctype.grn_note.grn_note.build_auto_grn_doc_dict", build):
-			wbm_module._ensure_grn_note_for_weigh_bridge("WBM-1")
-		build.assert_not_called()
 
 	# --- GRN fields: correction overwrites, first fill only fills blanks
 

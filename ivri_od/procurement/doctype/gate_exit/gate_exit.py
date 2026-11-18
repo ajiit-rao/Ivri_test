@@ -65,7 +65,7 @@ class GateExit(Document):
 		created = create_grn_notes_after_gate_exit(self.gate_entry_in)
 		if created:
 			frappe.msgprint(
-				_("GRN Note created: {0}").format(", ".join(frappe.bold(name) for name in created)),
+				_("GRN created: {0}").format(", ".join(frappe.bold(name) for name in created)),
 				indicator="green",
 				alert=True,
 			)
