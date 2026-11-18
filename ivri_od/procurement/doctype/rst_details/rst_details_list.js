@@ -7,6 +7,12 @@
 // "Lot No is empty" when TP No (the Lot No for a depo) is blank. Only the display changes: the saved
 // value stays "Rice Dispatch" (weighment, report and filters use it).
 frappe.listview_settings["RST Details"] = {
+	// RST No is the title field (first column) and is also the ID, so the extra "ID" column repeats it.
+	// Display only: the ID is still the record name and is used in links and search.
+	hide_name_column: true,
+	// The "ID" filter repeats RST No, so it is not shown.
+	hide_name_filter: true,
+
 	add_fields: ["tp_no", "tp_status"],
 	formatters: {
 		// Depo RST: its number is a Lot No, shown in the Lot No column, so TP No stays empty.
@@ -27,14 +33,75 @@ frappe.listview_settings["RST Details"] = {
 		},
 	},
 	onload(listview) {
+		// A saved column layout can list "ID" as a column. Frappe rebuilds the columns when that layout
+		// loads, so take the ID column out after every rebuild.
+		const frappe_setup_columns = listview.setup_columns.bind(listview);
+		listview.setup_columns = async function (...args) {
+			await frappe_setup_columns(...args);
+			listview.columns = (listview.columns || []).filter(
+				(col) => !(col.type === "Field" && col.df && col.df.fieldname === "name")
+			);
+		};
+		listview.columns = (listview.columns || []).filter(
+			(col) => !(col.type === "Field" && col.df && col.df.fieldname === "name")
+		);
+
 		// Open with no filter: Frappe remembers the filters used last time, which hid data from staff.
 		// A link with filters in its address (route options) is left alone.
 		if (!Object.keys(frappe.route_options || {}).length && listview.filter_area) {
 			listview.filter_area.clear();
 		}
+		make_filters_dropdown(listview);
 		add_rst_status_filter(listview);
 	},
 };
+
+
+// Every filter above the list is a dropdown that lists the values already saved, so staff pick
+// instead of typing. Values are read once when the list opens.
+const DROPDOWN_FILTERS = ["rst_no", "vehicle_no", "tp_no", "party_name", "season_code"];
+
+async function make_filters_dropdown(listview) {
+	const wrapper = listview.filter_area && listview.filter_area.standard_filters_wrapper;
+	if (!wrapper) return;
+
+	const names = DROPDOWN_FILTERS.filter((n) => listview.page.fields_dict[n]);
+	// Read all values first, so the boxes are rebuilt together and keep this order.
+	const all_values = await Promise.all(
+		names.map((fieldname) =>
+			frappe.db
+				.get_list("RST Details", {
+					fields: [fieldname],
+					group_by: fieldname,
+					order_by: `${fieldname} asc`,
+					limit: 0,
+				})
+				.then((rows) => rows.map((r) => r[fieldname]).filter(Boolean))
+		)
+	);
+
+	names.forEach((fieldname, i) => {
+		const old_field = listview.page.fields_dict[fieldname];
+		const current_value = old_field.get_value();
+		const label = old_field.df.label;
+		$(old_field.wrapper).remove();
+		delete listview.page.fields_dict[fieldname];
+
+		const field = listview.page.add_field(
+			{
+				fieldtype: "Autocomplete",
+				fieldname: fieldname,
+				label: label,
+				options: all_values[i],
+				condition: "=",
+				is_filter: 1,
+				onchange: () => listview.filter_area.debounced_refresh_list_view(),
+			},
+			wrapper
+		);
+		if (current_value) field.set_value(current_value);
+	});
+}
 
 // Status filter: the same texts the Status column shows. A depo RST is saved as "Rice Dispatch"; it shows
 // as "Rice Delivery to Depo", or "Lot No is empty" when its Lot No is blank, so those two filter on Lot No too.

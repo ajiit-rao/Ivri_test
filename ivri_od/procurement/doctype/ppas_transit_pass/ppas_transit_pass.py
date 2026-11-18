@@ -181,3 +181,22 @@ def on_doctype_update():
 		constraint_name="unique_pass_unique_key",
 	)
 	_ensure_list_view_settings()
+
+
+FILTER_VALUE_FIELDS = ("season", "transit_pass_no", "miller", "ppc", "vehicle_no", "action")
+
+
+@frappe.whitelist()
+def get_filter_values() -> dict[str, list[str]]:
+	"""Drop-down values of the list filters: the distinct values of each field in the transit passes."""
+	frappe.has_permission("PPAS Transit Pass", "read", throw=True)
+	values = {}
+	for fieldname in FILTER_VALUE_FIELDS:
+		values[fieldname] = frappe.db.sql(
+			f"""
+			SELECT DISTINCT TRIM(`{fieldname}`) FROM `tabPPAS Transit Pass`
+			WHERE IFNULL(TRIM(`{fieldname}`), '') != '' ORDER BY 1
+			""",
+			pluck=True,
+		)
+	return values

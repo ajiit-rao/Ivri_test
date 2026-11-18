@@ -14,6 +14,7 @@
  "sort_order": "DESC",
  "states": [],
  "autoname": "field:vehicle_no",
+ "title_field": "vehicle_no",
  "document_type": "Setup",
  "field_order": [
   "vehicle_no",

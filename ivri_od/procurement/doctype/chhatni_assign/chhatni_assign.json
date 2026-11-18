@@ -6,6 +6,7 @@
  "doctype": "DocType",
  "document_type": "Document",
  "engine": "InnoDB",
+ "title_field": "ppc_name",
  "field_order": [
   "ppc_name",
   "mill_name",
