@@ -63,6 +63,7 @@ frappe.ui.form.on("GRN Note", {
 	},
 	refresh(frm) {
 		frm.toggle_display("is_local_procurement", Boolean(frm.doc.is_local_procurement));
+		frm.toggle_display("is_rice_dispatch", Boolean(frm.doc.is_rice_dispatch));
 		frm.toggle_display("local_purchase_order", Boolean(frm.doc.local_purchase_order));
 		setup_pass_unique_key_autocomplete(frm);
 		setup_rst_no_autocomplete(frm);
@@ -218,8 +219,14 @@ function sync_gate_exit_fields(frm) {
 }
 
 function sync_purchase_heading(frm) {
-	const local = !!frm.doc.is_local_procurement;
-	const heading = local ? __("Local Paddy Purchase") : __("Government Paddy Purchase");
+	const rice = !!frm.doc.is_rice_dispatch;
+	// Local Paddy Purchase and Rice Delivery to Depo get the big banner; government paddy the section title.
+	const local = rice || !!frm.doc.is_local_procurement;
+	const heading = rice
+		? __("Rice Delivery to Depo")
+		: local
+			? frm.doc.deal_status || __("Local Paddy Purchase")
+			: __("Government Paddy Purchase");
 	frm.set_df_property("grn_section", "label", local ? __("GRN") : heading);
 
 	const section = frm.fields_dict.grn_section;
@@ -236,17 +243,16 @@ function sync_purchase_heading(frm) {
 		);
 	}
 
-	const banner = frm.fields_dict.local_paddy_heading;
-	if (!banner) {
-		return;
+	// The banner text is set on the field itself (its HTML), so it is right whatever the page layout.
+	if (frm.fields_dict.local_paddy_heading) {
+		const html = local
+			? `<div style="font-size:32px;font-weight:700;line-height:1.15;margin:8px 0 16px;">${frappe.utils.escape_html(
+					heading
+				)}</div>`
+			: "";
+		frm.set_df_property("local_paddy_heading", "options", html);
+		frm.toggle_display("local_paddy_heading", !!local);
 	}
-	banner.$wrapper.find(".control-label").hide();
-	banner.$wrapper.find(".html-content, .control-input-wrapper, .form-group").first().html(
-		`<div style="font-size:32px;font-weight:700;line-height:1.15;margin:8px 0 16px;">${frappe.utils.escape_html(
-			heading
-		)}</div>`
-	);
-	banner.$wrapper.toggle(!!local);
 }
 
 function sync_grn_no_display(frm) {
@@ -360,7 +366,7 @@ function load_transit_pass_details(frm) {
 }
 
 function refresh_grn_chhatni(frm) {
-	if (!frm.is_new() || frm.doc.is_local_procurement) {
+	if (!frm.is_new() || frm.doc.is_local_procurement || frm.doc.is_rice_dispatch) {
 		return;
 	}
 	frappe.call({

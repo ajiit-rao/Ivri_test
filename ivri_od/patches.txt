@@ -172,3 +172,9 @@ ivri_od.patches.v1_0.view_dc_depot_from_pdf
 ivri_od.patches.v1_0.qc_type_of_pkt_summary
 ivri_od.patches.v1_0.qc_unloading_point_name
 ivri_od.patches.v1_0.rst_details_list_columns_and_filters
+ivri_od.patches.v1_0.grn_note_list_depo_name
+ivri_od.patches.v1_0.rst_list_lot_no
+ivri_od.patches.v1_0.wbm_transaction_type_from_rst
+ivri_od.patches.v1_0.wbm_mill_from_rst
+ivri_od.patches.v1_0.grn_note_types
+ivri_od.patches.v1_0.grn_note_list_lot_no

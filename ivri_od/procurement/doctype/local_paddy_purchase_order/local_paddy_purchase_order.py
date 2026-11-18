@@ -8,7 +8,7 @@ from frappe.utils import flt, nowdate
 
 
 def get_po_received_quantity(po_name: str) -> float:
-	"""Calculate cumulative received quantity from actual downstream GRN Notes."""
+	"""Received quantity = Net Weight of the private-deal GRN Notes (purchases) made against this order."""
 	if not po_name:
 		return 0.0
 
@@ -18,6 +18,7 @@ def get_po_received_quantity(po_name: str) -> float:
 		FROM `tabGRN Note`
 		WHERE local_purchase_order = %s
 		  AND is_local_procurement = 1
+		  AND IFNULL(transaction_type, '') != 'Sale'
 		  AND docstatus < 2
 		""",
 		po_name,

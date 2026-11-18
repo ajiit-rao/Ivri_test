@@ -90,6 +90,8 @@ def government_pass_errors(grn, wbm) -> list[str]:
 	that agrees with it. Nothing else decides this (not the supplier, warehouse, Item or bag count). A populated
 	but unresolved key fails safely."""
 	key = (grn.get("pass_unique_key") or "").strip()
+	if cint(grn.get("is_rice_dispatch")):
+		return [_("This GRN Note is a Rice Delivery to Depo (rice sent out). It is a record only and is never posted to stock.")]
 	if cint(grn.get("is_local_procurement")):
 		if key:
 			return [

@@ -99,6 +99,31 @@ def qr_content_entry(doc, entry_datetime_display: str) -> str:
 
 def qr_content_grn_note(doc, receipt_datetime_display: str) -> str:
 	"""GRN QR text: only the frequently used details (short, so it prints and scans easily)."""
+	if doc.get("is_local_procurement"):
+		# Private deal: bought or sold, what, with whom. No government or CMR details.
+		return _join_qr_lines(
+			_qr_line("GRN", doc.get("grn_no") or doc.name),
+			_qr_line("Date & Time", receipt_datetime_display),
+			_qr_line("Type", doc.get("deal_status")),
+			_qr_line("Transaction", doc.get("transaction_type")),
+			_qr_line("Commodity", doc.get("commodity")),
+			_qr_line("Party", doc.get("party_name")),
+			_qr_line("Mill", doc.get("mill_name")),
+			_qr_line("Vehicle No", doc.get("vehicle_no")),
+			_qr_line("Net Weight", doc.get("net_weight")),
+		)
+	if doc.get("is_rice_dispatch"):
+		# Rice to a depo: no paddy details and no quality check.
+		return _join_qr_lines(
+			_qr_line("GRN", (doc.get("grn_no") or doc.name or "").strip() or doc.name),
+			_qr_line("Date & Time", receipt_datetime_display),
+			_qr_line("Type", "Rice Delivery to Depo"),
+			_qr_line("Depo", doc.get("depo_name") or doc.get("party_name")),
+			_qr_line("Lot No", doc.get("lot_no")),
+			_qr_line("Mill", doc.get("mill_name")),
+			_qr_line("Vehicle No", doc.get("vehicle_no")),
+			_qr_line("Net Weight", doc.get("net_weight")),
+		)
 	return _join_qr_lines(
 		_qr_line("GRN", (doc.grn_no or doc.name or "").strip() or doc.name),
 		_qr_line("Receipt Date & Time", receipt_datetime_display),

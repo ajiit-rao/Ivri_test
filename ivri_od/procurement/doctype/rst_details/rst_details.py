@@ -7,8 +7,6 @@ from frappe.utils import flt
 
 from ivri_od.procurement.datetime_fields import ensure_doc_datetime
 from ivri_od.procurement.doctype.ppas_transit_pass.pass_unique_key import (
-	MAX_KEY_LENGTH,
-	_key_part,
 	make_pass_unique_key,
 	short_season_code,
 )
@@ -35,6 +33,7 @@ class RSTDetails(Document):
 		ensure_doc_datetime(self, "entry_datetime", date_field="entry_date", time_field="entry_time")
 		self._validate_unique_rst_no()
 		self._set_tp_status()
+		self._set_lot_no()
 		self._set_chhatni()
 		self._validate_mill_name()
 		self._validate_local_purchase_order()
@@ -80,8 +79,20 @@ class RSTDetails(Document):
 				title=_("Missing Mill No"),
 			)
 
+	def _set_lot_no(self):
+		"""Depo RST: TP No holds the Lot No, copied to Lot No for the list column. Empty for any other RST."""
+		if self.meta.has_field("lot_no"):
+			is_depo = self.tp_status == RICE_DISPATCH_STATUS
+			self.lot_no = (self.tp_no or "").strip() if is_depo else ""
+
 	def _set_tp_status(self):
-		details = resolve_rst_tp_details(self.tp_no, self.party_name, self.entry_datetime or self.entry_date)
+		details = resolve_rst_tp_details(
+			self.tp_no,
+			self.party_name,
+			self.entry_datetime or self.entry_date,
+			commodity=self.get("commodity"),
+			transaction_type=self.get("transaction_type"),
+		)
 
 		# Ambiguous Transit Pass only: never pick one of several passes.
 		if details.get("validation_message"):
@@ -96,7 +107,11 @@ class RSTDetails(Document):
 			title = _("Invalid TP No") if self.tp_status == "Invalid TP No" else _("PPC Mismatch")
 			frappe.msgprint(details["notification"], title=title, indicator="orange", alert=True)
 		# Never keep a mill or agent that the current TP No / Party Name does not resolve.
-		self.mill_name = details.get("mill_name") or ""
+		# Rice Dispatch and private deals: the Mill No comes with the RST, so it is kept as given.
+		if self.tp_status == RICE_DISPATCH_STATUS or is_private_status(self.tp_status):
+			self.mill_name = (self.mill_name or "").strip()
+		else:
+			self.mill_name = details.get("mill_name") or ""
 		self.agent_name = details.get("agent_name") or ""
 		self.tp_quantity = flt(details.get("tp_quantity"))
 		self._set_season_code_and_rst_unique_key(details)
@@ -486,36 +501,44 @@ def party_matches_depo_master(party_name: str | None) -> bool:
 	return bool(get_depo_for_party(party_name))
 
 
-def rice_dispatch_unique_key(depo: dict, season_code: str, lot_no: str | None) -> str:
-	"""RST Unique Key for Rice Dispatch: DEPONAME(CODE)-K25-LOT{lot no}.
-
-	Same layout as a Pass Unique Key, but the Lot No is only a reference: it is never read as a TP number.
-	The Lot No part is left out when no Lot No was entered.
-	"""
-	parts = [
-		f"{_key_part(depo.get('depo_name'))}({_key_part(depo.get('code'))})",
-		short_season_code(season_code),
-	]
-	lot = _key_part(lot_no, "")
-	if lot:
-		parts.append(lot if lot.upper().startswith("LOT") else f"LOT{lot}")
-	return "-".join(parts)[:MAX_KEY_LENGTH]
-
-
 def tp_no_is_blank(tp_no) -> bool:
 	"""True when no TP No was given: empty, or only zeros ("0" is typed when there is no TP)."""
 	text = (tp_no or "").strip()
 	return not text or set(text) == {"0"}
 
 
-def resolve_rst_tp_details(tp_no: str | None, party_name: str | None, rst_datetime=None) -> dict:
+PRIVATE_STATUS_PREFIX = "Local"
+
+
+def private_status_text(commodity: str | None, transaction_type: str | None) -> str:
+	"""Status of a private deal: "Local {Commodity} {Transaction Type}", e.g. "Local Paddy Purchase",
+	"Local BRAN Sale". Commodity is kept as typed, the type is in Title case; an empty part is left out."""
+	commodity = " ".join((commodity or "").split())
+	deal = " ".join((transaction_type or "").split()).title()
+	return " ".join(part for part in (PRIVATE_STATUS_PREFIX, commodity, deal) if part)
+
+
+def is_private_status(status: str | None) -> bool:
+	"""True for a private deal status ("Local", "Local Paddy Purchase", "Local BRAN Sale" ...)."""
+	status = (status or "").strip()
+	return status == PRIVATE_STATUS_PREFIX or status.startswith(PRIVATE_STATUS_PREFIX + " ")
+
+
+def resolve_rst_tp_details(
+	tp_no: str | None,
+	party_name: str | None,
+	rst_datetime=None,
+	commodity: str | None = None,
+	transaction_type: str | None = None,
+) -> dict:
 	"""Implement the 5 RST TP & Party Name rules:
 	1. TP No. exists in Transit Pass and Party Name identifies its PPC (name, code or name plus code; case, spaces
 	   and brackets ignored) -> status TP Received, and Party Name is saved as the PPC Master NAME(CODE).
 	   A name that fits several PPCs is never guessed: validation_message asks for NAME(CODE).
 	2. TP No. is empty but Party Name matches any Transit Pass PPC -> status TP No Not Received.
 	3. TP No. exists but Party Name is not its PPC -> status PPC Mismatch (notification).
-	4. TP No. is empty and Party Name matches no Transit Pass PPC -> status Local Paddy Purchase.
+	4. TP No. is empty and Party Name matches no Transit Pass PPC and no depo -> a private deal (buying or
+	   selling anything): status "Local {Commodity} {Transaction Type}", e.g. "Local BRAN Sale".
 	5. TP No. is entered but not found in Transit Pass -> status Invalid TP No (notification).
 	   Checked before rule 3, so an unknown TP No is never reported as a PPC mismatch.
 	Only several passes matching the same TP No and Party Name set validation_message (save is blocked).
@@ -523,8 +546,7 @@ def resolve_rst_tp_details(tp_no: str | None, party_name: str | None, rst_dateti
 	Checked before the five rules: Party Name equals a Depo Master Depo Name -> status Rice Dispatch,
 	whether TP No is empty or not. For Rice Dispatch the TP No is a Lot No / reference number: it is
 	never looked up in PPAS Transit Pass, never checked against a PPC and never changed.
-	Its Season Code comes from the RST Date & Time only, and its RST Unique Key is
-	DEPONAME(CODE)-K25-LOT{lot no} (blank, with the usual message, when no season covers the date).
+	Season Code and RST Unique Key stay empty (no season lookup, no key message).
 	With no depo match the rules above apply unchanged.
 
 	Season: the Season Master whose Start Date - End Date covers the RST Date & Time gives season_code.
@@ -547,6 +569,12 @@ def resolve_rst_tp_details(tp_no: str | None, party_name: str | None, rst_dateti
 		"party_name": "",
 	}
 
+	if party_name and party_matches_depo_master(party_name):
+		# Rice Dispatch (delivery to a depo): TP No is the Lot No, kept as is. No Season Code and no
+		# RST Unique Key: they only identify a Transit Pass receipt, so they stay empty and hidden.
+		result["tp_status"] = RICE_DISPATCH_STATUS
+		return result
+
 	season = get_season_for_date(rst_datetime) if rst_datetime else None
 	if season:
 		result["season_code"] = get_season_code(season)
@@ -555,14 +583,6 @@ def resolve_rst_tp_details(tp_no: str | None, party_name: str | None, rst_dateti
 			"No Season Master covers the RST Date & Time, so Season Code and RST Unique Key are empty. "
 			"Set Start Date and End Date in Season Master, then save this RST again."
 		)
-
-	if party_name and party_matches_depo_master(party_name):
-		# Rice Dispatch: season from the RST date only (set above); TP No is the Lot No, kept as is.
-		result["tp_status"] = RICE_DISPATCH_STATUS
-		depo = get_depo_for_party(party_name)
-		if season and depo:
-			result["rst_unique_key"] = rice_dispatch_unique_key(depo, result["season_code"], tp_no)
-		return result
 
 	if tp_no_is_blank(tp_no):
 		if not party_name:
@@ -575,8 +595,8 @@ def resolve_rst_tp_details(tp_no: str | None, party_name: str | None, rst_dateti
 			if agent:
 				result["agent_name"] = agent
 		else:
-			# Rule 4: TP No. is empty and Party Name matches no Transit Pass PPC -> status Local Paddy Purchase
-			result["tp_status"] = "Local Paddy Purchase"
+			# Rule 4: TP No. is empty and Party Name matches no Transit Pass PPC -> private deal
+			result["tp_status"] = private_status_text(commodity, transaction_type)
 		return result
 
 	# TP No is entered
@@ -705,11 +725,25 @@ def check_private_procurement(tp_no=None, party_name=None):
 
 
 @frappe.whitelist()
-def fetch_mill_and_agent_from_tp(tp_no=None, party_name=None, ppc_name=None, entry_datetime=None):
+def fetch_mill_and_agent_from_tp(
+	tp_no=None, party_name=None, ppc_name=None, entry_datetime=None, commodity=None, transaction_type=None
+):
 	"""Recalculate TP status, mill, agent, Season Code and RST Unique Key; validate TP vs PPC."""
 	party_name = (party_name or ppc_name or "").strip()
 	tp_no = (tp_no or "").strip()
-	return resolve_rst_tp_details(tp_no, party_name, entry_datetime or None)
+	return resolve_rst_tp_details(
+		tp_no, party_name, entry_datetime or None, commodity=commodity, transaction_type=transaction_type
+	)
+
+
+@frappe.whitelist()
+def is_ppc_party(party_name=None):
+	"""True when Party Name is a Transit Pass PPC (not a depo). The RST form shows Season Code
+	and RST Unique Key only then."""
+	party_name = (party_name or "").strip()
+	if not party_name or party_matches_depo_master(party_name):
+		return False
+	return party_matches_any_transit_pass_ppc(party_name)
 
 
 @frappe.whitelist()
@@ -718,6 +752,9 @@ def get_party_name_choices():
 
 	Staff pick from here so a spelling mistake cannot break the Transit Pass match. Other
 	names (a local farmer) can still be typed: they save as Local Paddy Purchase.
+
+	Each choice is {label, value}. A depo shows as "Depo Name - Code - Depo - RRC/FCI" but
+	saves only the Depo Name, so get_depo_for_party (name match) keeps working.
 	"""
 	ppcs = frappe.db.sql(
 		"""
@@ -726,10 +763,20 @@ def get_party_name_choices():
 		""",
 		pluck=True,
 	)
-	depos = frappe.get_all("Depo Master", pluck="depo_name", order_by="depo_name asc")
+	depos = frappe.get_all(
+		"Depo Master", fields=["code", "depo_name", "depo_type"], order_by="depo_name asc"
+	)
 	seen, choices = set(), []
-	for name in [*ppcs, *[(d or "").strip() for d in depos]]:
-		if name and name.casefold() not in seen:
-			seen.add(name.casefold())
-			choices.append(name)
+
+	def add(value, label):
+		if value and value.casefold() not in seen:
+			seen.add(value.casefold())
+			choices.append({"label": label, "value": value})
+
+	for ppc in ppcs:
+		add(ppc, ppc)
+	for depo in depos:
+		name = (depo.depo_name or "").strip()
+		label = " - ".join(p for p in (name, depo.code, "Depo", depo.depo_type) if p)
+		add(name, label)
 	return choices

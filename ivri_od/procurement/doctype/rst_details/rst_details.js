@@ -16,7 +16,13 @@ function refresh_tp_details(frm) {
 
 	frappe.call({
 		method: "ivri_od.procurement.doctype.rst_details.rst_details.fetch_mill_and_agent_from_tp",
-		args: { tp_no, party_name, entry_datetime: frm.doc.entry_datetime || "" },
+		args: {
+			tp_no,
+			party_name,
+			entry_datetime: frm.doc.entry_datetime || "",
+			commodity: frm.doc.commodity || "",
+			transaction_type: frm.doc.transaction_type || "",
+		},
 		callback(r) {
 			if (request_id !== frm.__tp_details_request_id) {
 				return;
@@ -25,7 +31,9 @@ function refresh_tp_details(frm) {
 			if (data.tp_status !== undefined) {
 				frm.set_value("tp_status", data.tp_status);
 			}
-			if (data.mill_name !== undefined) {
+			// Rice Dispatch and private deals ("Local ..."): keep the Mill No given on the RST.
+			const keeps_mill = data.tp_status === "Rice Dispatch" || /^Local( |$)/.test(data.tp_status || "");
+			if (data.mill_name !== undefined && !keeps_mill) {
 				frm.set_value("mill_name", data.mill_name);
 			}
 			if (data.agent_name !== undefined) {
@@ -39,7 +47,7 @@ function refresh_tp_details(frm) {
 			show_rst_unique_key_status(frm, data.key_message || "");
 			if (data.notification) {
 				frappe.msgprint({
-					title: __(data.tp_status || "Status"),
+					title: __(rst_status_label(data.tp_status, frm.doc) || "Status"),
 					message: __(data.notification),
 					indicator: "orange",
 				});
@@ -56,22 +64,58 @@ function refresh_tp_details(frm) {
 	});
 }
 
-// The site hides empty read-only fields; keep these visible so staff see they are empty.
+// Season Code and RST Unique Key are shown only when Party Name is a PPC (a Transit Pass party).
+// Then they stay visible even when empty, so staff see they are empty. For a depo, a local
+// farmer or a blank Party Name they are hidden.
 function always_show_read_only(frm, fieldnames) {
 	for (const fieldname of fieldnames) {
 		const field = frm.fields_dict[fieldname];
 		if (field && !field.df.get_status) {
-			field.df.get_status = () => "Read";
+			field.df.get_status = () =>
+				frm.__party_is_ppc && frm.doc.tp_status !== "Rice Dispatch" ? "Read" : "None";
 			field.refresh();
 		}
 	}
+}
+
+// Ask the server if Party Name is a PPC, then show or hide Season Code and RST Unique Key.
+function sync_ppc_party_fields(frm, on_refresh = false) {
+	const party_name = (frm.doc.party_name || "").trim();
+	const request_id = (frm.__ppc_party_request_id || 0) + 1;
+	frm.__ppc_party_request_id = request_id;
+	const apply = (is_ppc) => {
+		if (request_id !== frm.__ppc_party_request_id) {
+			return;
+		}
+		frm.__party_is_ppc = Boolean(is_ppc);
+		for (const fieldname of ["season_code", "rst_unique_key"]) {
+			frm.refresh_field(fieldname);
+		}
+		if (!frm.__party_is_ppc) {
+			frm.set_intro("");
+		} else if (on_refresh) {
+			// On load the key message ran before this answer came, so show it now.
+			show_rst_unique_key_status(frm);
+		}
+	};
+	if (!party_name) {
+		apply(false);
+		return;
+	}
+	frappe.call({
+		method: "ivri_od.procurement.doctype.rst_details.rst_details.is_ppc_party",
+		args: { party_name },
+		callback(r) {
+			apply(r.message);
+		},
+	});
 }
 
 // Say why the key is missing.
 // message: the server's reason after a lookup; undefined on load, when the saved values decide.
 function show_rst_unique_key_status(frm, message) {
 	frm.set_intro("");
-	if (!frm.fields_dict.rst_unique_key) {
+	if (!frm.fields_dict.rst_unique_key || frm.doc.tp_status === "Rice Dispatch" || !frm.__party_is_ppc) {
 		return;
 	}
 	if (message === undefined && !frm.is_new() && !frm.doc.rst_unique_key) {
@@ -131,21 +175,73 @@ function load_party_name_choices(frm) {
 	});
 }
 
+// Party Name is a depo -> saved status "Rice Dispatch". Staff see "Rice Delivery to Depo", or
+// "Lot No is empty" while TP No (shown as Lot No) is blank. Only the display changes: the saved
+// value stays "Rice Dispatch" (the weighment, Rice Dispatch report and filters use it).
+const RICE_DISPATCH = "Rice Dispatch";
+const LOT_NO_EMPTY = "Lot No is empty";
+
+function rst_status_label(value, doc) {
+	if (value === RICE_DISPATCH) {
+		return (doc?.tp_no || "").trim() ? "Rice Delivery to Depo" : LOT_NO_EMPTY;
+	}
+	return value || "";
+}
+
+function format_rst_status(value, doc) {
+	const label = rst_status_label(value, doc);
+	const html = frappe.utils.escape_html(__(label));
+	return label === LOT_NO_EMPTY ? `<span class="text-danger">${html}</span>` : html;
+}
+
+// Depo RST: the TP No field holds the Lot No, so it is labelled Lot No, and Season Code and
+// RST Unique Key are hidden (see always_show_read_only).
+function sync_lot_no_label(frm) {
+	const is_depo = frm.doc.tp_status === RICE_DISPATCH;
+	frm.set_df_property("tp_no", "label", is_depo ? __("Lot No") : __("TP No"));
+	for (const fieldname of ["tp_status", "season_code", "rst_unique_key"]) {
+		frm.refresh_field(fieldname);
+	}
+	if (is_depo) {
+		frm.set_intro("");
+	}
+}
+
 frappe.ui.form.on("RST Details", {
+	setup(frm) {
+		const df = frm.get_docfield("tp_status");
+		if (df) {
+			df.formatter = (value, _df, _options, doc) => format_rst_status(value, doc || frm.doc);
+		}
+	},
+	tp_status(frm) {
+		sync_lot_no_label(frm);
+	},
 	refresh(frm) {
+		sync_lot_no_label(frm);
 		load_party_name_choices(frm);
 		sync_mill_requirement(frm);
 		frm.toggle_display("local_purchase_order", Boolean(frm.doc.local_purchase_order));
 		always_show_read_only(frm, ["season_code", "rst_unique_key"]);
 		show_rst_unique_key_status(frm);
+		sync_ppc_party_fields(frm, true);
 	},
 	tp_no(frm) {
+		frm.refresh_field("tp_status");
 		refresh_tp_details(frm);
 	},
 	entry_datetime(frm) {
 		refresh_tp_details(frm);
 	},
 	party_name(frm) {
+		sync_ppc_party_fields(frm);
+		refresh_tp_details(frm);
+	},
+	// Private deal status is "Local {Commodity} {Transaction Type}".
+	commodity(frm) {
+		refresh_tp_details(frm);
+	},
+	transaction_type(frm) {
 		refresh_tp_details(frm);
 	},
 	net_paddy_weight_qt(frm) {
