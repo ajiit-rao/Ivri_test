@@ -169,3 +169,6 @@ ivri_od.patches.v1_0.lot_search_vehicle_no
 ivri_od.patches.v1_0.lot_search_ac_note_no
 ivri_od.patches.v1_0.dc_transit_challan_net_weight_zero
 ivri_od.patches.v1_0.view_dc_depot_from_pdf
+ivri_od.patches.v1_0.qc_type_of_pkt_summary
+ivri_od.patches.v1_0.qc_unloading_point_name
+ivri_od.patches.v1_0.rst_details_list_columns_and_filters

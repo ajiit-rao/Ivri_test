@@ -3,18 +3,6 @@
 
 const GATE_ENTRY_PASS_BTN = "btn-gate-entry-pass";
 
-frappe.listview_settings["Gate Entry"] = {
-	onload(listview) {
-		listview.page.add_inner_button(__("Inside Mill"), () => {
-			listview.filter_area.clear();
-			listview.filter_area.add([
-				["Gate Entry", "in_out", "=", "In"],
-				["Gate Entry", "inside_mill", "=", 1],
-			]);
-		});
-	},
-};
-
 frappe.ui.form.on("Gate Entry", {
 	refresh(frm) {
 		frm.set_df_property("in_out", "hidden", 1);

@@ -28,7 +28,6 @@ from ivri_od.procurement.mill_gate import (
 
 
 PENDING_QC = "Pending QC"
-REJECTED_QC = "Rejected"
 KG_PER_QUINTAL = 100
 QTY_MAX_DECIMALS = 3
 
@@ -39,6 +38,7 @@ def effective_quality_test_for_wbm(
 	tare_weight=None,
 	wbm_name: str | None = None,
 ) -> str:
+	"""Quality Test of a weighment: Pending QC (no Quality Check), else the Quality Check result."""
 	qc_name = (qc_name or "").strip()
 	if not qc_name or not frappe.db.exists("Quality Check", qc_name):
 		return PENDING_QC
@@ -46,18 +46,6 @@ def effective_quality_test_for_wbm(
 	decision = (frappe.db.get_value("Quality Check", qc_name, "qc_decision") or "").strip()
 	if not decision:
 		return PENDING_QC
-
-	tare = flt(tare_weight)
-	if not tare and wbm_name and frappe.db.exists("Weigh Bridge Measurement", wbm_name):
-		tare = flt(frappe.db.get_value("Weigh Bridge Measurement", wbm_name, "tare_weight"))
-
-	if tare:
-		from ivri_od.procurement.doctype.quality_check.quality_check import (
-			is_full_paddy_return_from_qc,
-		)
-
-		if is_full_paddy_return_from_qc(qc_name):
-			return REJECTED_QC
 
 	if decision in ("Accepted", "Partially Accepted"):
 		return decision
@@ -73,8 +61,6 @@ def apply_wbm_quality_outcome_from_qc(doc) -> None:
 		tare_weight=doc.tare_weight,
 		wbm_name=doc.name if not doc.is_new() else None,
 	)
-	if doc.quality_test == REJECTED_QC:
-		doc.net_weight = 0
 
 
 def persist_wbm_quality_and_net_after_qc_sync(wbm_name: str) -> None:
@@ -1203,7 +1189,15 @@ def persist_quality_check_sync(name, actual_truck_no=None, truck_no_in_tp=None):
 	return data
 
 
-FILTER_VALUE_FIELDS = ("rst_no", "party_name", "transit_pass_no", "lot_no", "actual_truck_no", "commodity")
+FILTER_VALUE_FIELDS = (
+	"rst_no",
+	"actual_truck_no",
+	"truck_no_in_tp",
+	"transit_pass_no",
+	"lot_no",
+	"party_name",
+	"commodity",
+)
 
 
 @frappe.whitelist()

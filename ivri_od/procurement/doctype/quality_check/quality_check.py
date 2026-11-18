@@ -59,6 +59,7 @@ class QualityCheck(Document):
 		self._validate_qc_decision()
 		self._normalize_fields()
 		self._sync_paddy_type_from_old_new_bags()
+		self._sync_type_of_pkt_summary()
 		self._validate_old_new_bags()
 		self._validate_type_of_pkt()
 
@@ -231,6 +232,17 @@ class QualityCheck(Document):
 			self.paddy_type = _("Old {0}, New {1}").format(cint(row.old_bags), cint(row.new_bags))
 		else:
 			self.paddy_type = ""
+
+	def _sync_type_of_pkt_summary(self):
+		"""Short text of the Type of Bags row, so the list view can show it (a table cannot be shown in a list)."""
+		filled = [row for row in (self.type_of_pkt or []) if _is_type_of_pkt_row_filled(row)]
+		if len(filled) == 1:
+			row = filled[0]
+			self.type_of_pkt_summary = _("Jute {0}, Plastic {1}").format(
+				cint(row.jute_pkt_no), cint(row.no_of_plastic_bag)
+			)
+		else:
+			self.type_of_pkt_summary = ""
 
 	def _validate_old_new_bags(self):
 		_validate_qc_child_table_single_filled_row(

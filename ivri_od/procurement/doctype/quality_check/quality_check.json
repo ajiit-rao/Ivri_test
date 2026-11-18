@@ -20,6 +20,7 @@
   "driver_name",
   "column_break_gate",
   "unloading_point",
+  "unloading_point_name",
   "staff_name",
   "paddy_section",
   "paddy_received_in_pkt",
@@ -27,6 +28,7 @@
   "column_break_paddy",
   "paddy_quality",
   "paddy_type",
+  "type_of_pkt_summary",
   "quality_params_section",
   "moisture",
   "column_break_params",
@@ -127,6 +129,15 @@
    "description": "The warehouse where this load is unloaded. Only the mapped inventory warehouses (owner unit and physical location) can be chosen."
   },
   {
+   "fetch_from": "unloading_point.warehouse_name",
+   "fieldname": "unloading_point_name",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Unloading Point Name",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
    "depends_on": "eval:!doc.is_farmer_or_agent",
    "fieldname": "staff_name",
    "fieldtype": "Data",
@@ -169,6 +180,14 @@
    "fieldtype": "Data",
    "hidden": 1,
    "label": "Paddy Type (In Bags)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "type_of_pkt_summary",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Type of Bags Summary",
+   "no_copy": 1,
    "read_only": 1
   },
   {

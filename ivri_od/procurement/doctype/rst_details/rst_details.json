@@ -68,19 +68,22 @@
    "fieldname": "gross_vehicle_weight_qt",
    "fieldtype": "Float",
    "label": "Gross Vehicle Weight (QT)",
-   "precision": "3"
+   "precision": "3",
+   "in_list_view": 1
   },
   {
    "fieldname": "gross_paddy_weight_qt",
    "fieldtype": "Float",
    "label": "Gross Paddy Weight (QT)",
-   "precision": "3"
+   "precision": "3",
+   "in_list_view": 1
   },
   {
    "fieldname": "deduction_qt",
    "fieldtype": "Float",
    "label": "Deduction (QT)",
-   "precision": "3"
+   "precision": "3",
+   "in_list_view": 1
   },
   {
    "default": "0",
@@ -88,18 +91,21 @@
    "fieldtype": "Float",
    "label": "Gunny Weight (QT)",
    "non_negative": 1,
-   "precision": "3"
+   "precision": "3",
+   "in_list_view": 1
   },
   {
    "fieldname": "net_paddy_weight_qt",
    "fieldtype": "Float",
    "label": "Net Paddy Weight (QT)",
-   "precision": "3"
+   "precision": "3",
+   "in_list_view": 1
   },
   {
    "fieldname": "commodity",
    "fieldtype": "Data",
-   "label": "Commodity"
+   "label": "Commodity",
+   "in_list_view": 1
   },
   {
    "default": "Today",
@@ -126,7 +132,7 @@
   {
    "fieldname": "tp_status",
    "fieldtype": "Data",
-   "in_list_view": 1,
+   "in_list_view": 0,
    "label": "Status",
    "read_only": 1
   },
@@ -134,7 +140,8 @@
    "fieldname": "tare_vehicle_weight_qt",
    "fieldtype": "Float",
    "label": "Tare Vehicle Weight (QT)",
-   "precision": "3"
+   "precision": "3",
+   "in_list_view": 1
   },
   {
    "fieldname": "mill_name",
@@ -145,7 +152,6 @@
   {
    "fieldname": "agent_name",
    "fieldtype": "Link",
-   "in_standard_filter": 1,
    "label": "Agent Name",
    "options": "Agent Master",
    "read_only": 1
@@ -154,7 +160,6 @@
    "depends_on": "eval:doc.tp_status == 'Local Procurement' || doc.tp_status == 'Local Paddy Purchase' || !doc.tp_no",
    "fieldname": "local_purchase_order",
    "fieldtype": "Link",
-   "in_standard_filter": 1,
    "label": "Local Purchase Order",
    "options": "Local Paddy Purchase Order"
   },
@@ -183,7 +188,6 @@
    "description": "Pass Unique Key of the Transit Pass for this TP No and PPC, in the season of the RST Date & Time.",
    "fieldname": "rst_unique_key",
    "fieldtype": "Data",
-   "in_standard_filter": 1,
    "label": "RST Unique Key",
    "no_copy": 1,
    "read_only": 1
@@ -249,7 +253,8 @@
   {
    "fieldname": "place",
    "fieldtype": "Data",
-   "label": "Place"
+   "label": "Place",
+   "in_list_view": 1
   },
   {
    "fieldname": "transaction_type",
@@ -259,7 +264,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-05 01:00:00.000000",
+ "modified": "2026-11-18 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Procurement",
  "name": "RST Details",

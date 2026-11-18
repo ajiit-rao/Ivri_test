@@ -1,0 +1,21 @@
+/* List views of this app: long values and headings wrap onto a second line instead of being cut
+   with "...", so nothing is hidden. The list script adds the "ivri-list" class. Display only. */
+.ivri-list .list-row-col,
+.ivri-list .list-row-col .ellipsis,
+.ivri-list .list-row-col a,
+.ivri-list .list-row-col span {
+	white-space: normal !important;
+	overflow: visible !important;
+	text-overflow: clip !important;
+	overflow-wrap: anywhere;
+	line-height: 1.35;
+}
+.ivri-list .list-row-head .list-row-col {
+	font-weight: 600;
+}
+.ivri-list .list-row {
+	height: auto;
+	min-height: var(--list-row-height, 40px);
+	padding-top: 6px;
+	padding-bottom: 6px;
+}

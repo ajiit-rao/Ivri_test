@@ -96,7 +96,7 @@ class TestWeighBridgeListViewConfig(unittest.TestCase):
 
 	def test_quality_test_options_and_truck_no_in_tp(self):
 		options = [option for option in self.fields["quality_test"]["options"].split("\n") if option]
-		self.assertEqual(options, ["Pending QC", "Accepted", "Rejected", "Partially Accepted"])
+		self.assertEqual(options, ["Pending QC", "Accepted", "Partially Accepted"])
 		self.assertEqual(self.fields["truck_no_in_tp"]["label"], "Truck No in TP")
 
 	def test_no_hidden_field_is_a_list_column(self):
@@ -225,7 +225,7 @@ class TestWeighBridgePartyNameDisplay(unittest.TestCase):
 
 	def test_pass_unique_key_is_fetched_for_the_list(self):
 		with open(WBM_JS) as handle:
-			self.assertIn('add_fields: ["pacs_name", "pass_unique_key"]', handle.read())
+			self.assertIn('add_fields: ["pacs_name", "pass_unique_key", "quality_check"]', handle.read())
 
 	def test_regression_tp_received_party_name_was_blank_after_refresh(self):
 		"""The formatter used to sit in the form script, which Frappe loads only after a form is opened."""

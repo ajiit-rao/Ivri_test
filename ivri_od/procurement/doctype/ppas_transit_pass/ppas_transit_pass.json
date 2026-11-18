@@ -38,8 +38,7 @@
  "fields": [
   {
    "fieldname": "season",
-   "fieldtype": "Data",
-   "in_list_view": 1,
+   "fieldtype": "Autocomplete",
    "in_standard_filter": 1,
    "label": "Season",
    "reqd": 1
@@ -58,12 +57,11 @@
   {
    "fieldname": "pacs",
    "fieldtype": "Data",
-   "in_standard_filter": 1,
    "label": "PACS"
   },
   {
    "fieldname": "ppc",
-   "fieldtype": "Data",
+   "fieldtype": "Autocomplete",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "PPC",
@@ -71,7 +69,7 @@
   },
   {
    "fieldname": "miller",
-   "fieldtype": "Data",
+   "fieldtype": "Autocomplete",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Miller"
@@ -84,7 +82,7 @@
   {
    "bold": 0,
    "fieldname": "transit_pass_no",
-   "fieldtype": "Data",
+   "fieldtype": "Autocomplete",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Transit Pass No",
@@ -100,9 +98,9 @@
   {
    "fieldname": "transit_pass_date",
    "fieldtype": "Date",
-   "in_standard_filter": 1,
    "label": "Transit Pass Date",
-   "hidden": 1
+   "hidden": 1,
+   "in_standard_filter": 1
   },
   {
    "fieldname": "column_break_2",
@@ -121,7 +119,7 @@
   },
   {
    "fieldname": "vehicle_no",
-   "fieldtype": "Data",
+   "fieldtype": "Autocomplete",
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Vehicle No"
@@ -140,7 +138,6 @@
    "fieldname": "bags",
    "fieldtype": "Int",
    "in_list_view": 1,
-   "in_standard_filter": 1,
    "label": "No of Bag",
    "non_negative": 1
   },
@@ -161,7 +158,6 @@
    "default": "0",
    "fieldname": "delay_in_days",
    "fieldtype": "Int",
-   "in_standard_filter": 1,
    "label": "Delay (In Days)",
    "non_negative": 1
   },
@@ -169,7 +165,8 @@
    "fieldname": "accepted_date",
    "fieldtype": "Date",
    "label": "Accepted Date",
-   "hidden": 1
+   "hidden": 1,
+   "in_standard_filter": 1
   },
   {
    "fieldname": "column_break_4",
@@ -183,7 +180,7 @@
   },
   {
    "fieldname": "action",
-   "fieldtype": "Data",
+   "fieldtype": "Autocomplete",
    "in_standard_filter": 1,
    "label": "Action"
   },

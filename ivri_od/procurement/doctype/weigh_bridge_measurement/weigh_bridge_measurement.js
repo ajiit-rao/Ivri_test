@@ -53,6 +53,17 @@ function compact_wbm_form_layout(frm) {
 	layout.find(".empty-section").hide();
 }
 
+// Quality Test shows Pending QC (no Quality Check found), Accepted or Partially Accepted (from the Quality Check).
+function show_two_quality_statuses() {
+	const df = frappe.meta.get_docfield("Weigh Bridge Measurement", "quality_test");
+	if (df) {
+		df.formatter = (value, df_, options, doc) =>
+			doc && (doc.quality_check || "").trim() && ["Accepted", "Partially Accepted"].includes((value || "").trim())
+				? __(value.trim())
+				: __("Pending QC");
+	}
+}
+
 frappe.ui.form.on("Weigh Bridge Measurement", {
 	setup(frm) {
 		frm.set_query("agent_name", () => ({
@@ -76,6 +87,7 @@ frappe.ui.form.on("Weigh Bridge Measurement", {
 		sync_quality_from_qc(frm);
 	},
 	refresh(frm) {
+		show_two_quality_statuses();
 		frm.toggle_display("is_farmer_or_agent", Boolean(frm.doc.is_farmer_or_agent));
 		frm.toggle_display("local_purchase_order", Boolean(frm.doc.local_purchase_order));
 		toggle_wbm_source_mode_ui(frm);
@@ -553,6 +565,7 @@ function sync_quality_from_qc(frm) {
 			if (prev_qc !== qc) {
 				frm.doc.quality_check = qc;
 				frm.refresh_field("quality_check");
+				frm.refresh_field("quality_test");
 			}
 
 			if ((frm.doc.gate_entry || "") !== gate_entry) {

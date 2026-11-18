@@ -35,12 +35,16 @@ app_include_js = [
 	"/assets/ivri_od/js/warehouse_wise_stock_balance.js?v=2",
 	"/assets/ivri_od/js/mill_reminder_banner.js?v=12",
 	"/assets/ivri_od/js/report_column_width.js",
+	"/assets/ivri_od/js/list_readability.js",
 	"/assets/ivri_od/js/report_print.js",
 	"/assets/ivri_od/js/report_edit.js",
 	"/assets/ivri_od/js/stock_register_filters.js?v=2",
 	"portal_detail_table.bundle.js",
 ]
-app_include_css = ["/assets/ivri_od/css/report_filter_dropdown.css?v=2"]
+app_include_css = [
+	"/assets/ivri_od/css/report_filter_dropdown.css?v=2",
+	"/assets/ivri_od/css/list_readability.css",
+]
 # include js, css files in header of web template
 # web_include_css = "/assets/ivri_od/css/ivri_od.css"
 # web_include_js = "/assets/ivri_od/js/ivri_od.js"
