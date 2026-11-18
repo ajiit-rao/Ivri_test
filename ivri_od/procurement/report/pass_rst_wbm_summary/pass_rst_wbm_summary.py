@@ -192,10 +192,10 @@ def _build_wbm_by_pass(filters) -> dict[str, list[dict]]:
 		conditions.append("w.pass_unique_key = %s")
 		values.append(filters.pass_unique_key)
 	if filters.get("from_date"):
-		conditions.append("w.measurement_date >= %s")
+		conditions.append("DATE(w.date) >= %s")
 		values.append(getdate(filters.from_date))
 	if filters.get("to_date"):
-		conditions.append("w.measurement_date <= %s")
+		conditions.append("DATE(w.date) <= %s")
 		values.append(getdate(filters.to_date))
 
 	where_sql = " AND ".join(conditions)
@@ -207,11 +207,11 @@ def _build_wbm_by_pass(filters) -> dict[str, list[dict]]:
 			w.rst_no,
 			w.net_weight,
 			w.quality_test,
-			w.measurement_date,
-			w.measurement_time
+			DATE(w.date) AS measurement_date,
+			TIME(w.date) AS measurement_time
 		FROM `tabWeigh Bridge Measurement` w
 		WHERE {where_sql}
-		ORDER BY w.pass_unique_key ASC, w.measurement_date ASC, w.measurement_time ASC, w.name ASC
+		ORDER BY w.pass_unique_key ASC, w.date ASC, w.name ASC
 		""",
 		tuple(values),
 		as_dict=True,

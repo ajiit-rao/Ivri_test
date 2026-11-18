@@ -38,7 +38,13 @@
   "chhatni_kg_per_qtl",
   "chhatni_kg",
   "chhatni_qt",
-  "received_chhatni_pct"
+  "received_chhatni_pct",
+  "section_break_bags",
+  "jute_bags",
+  "plastic_bags",
+  "column_break_bags",
+  "old_bags",
+  "total_bags"
  ],
  "fields": [
   {
@@ -106,7 +112,8 @@
    "fieldname": "commodity",
    "fieldtype": "Data",
    "label": "Commodity",
-   "in_list_view": 1
+   "in_list_view": 1,
+   "in_standard_filter": 1
   },
   {
    "default": "Today",
@@ -114,7 +121,8 @@
    "fieldtype": "Date",
    "in_list_view": 0,
    "label": "Date",
-   "hidden": 1
+   "hidden": 1,
+   "in_standard_filter": 1
   },
   {
    "default": "Now",
@@ -133,7 +141,7 @@
   {
    "fieldname": "tp_status",
    "fieldtype": "Data",
-   "in_list_view": 0,
+   "in_list_view": 1,
    "label": "Status",
    "read_only": 1
   },
@@ -197,7 +205,6 @@
    "description": "From the Season Master whose Start Date - End Date covers the RST Date & Time.",
    "fieldname": "season_code",
    "fieldtype": "Data",
-   "in_standard_filter": 1,
    "label": "Season Code",
    "no_copy": 1,
    "read_only": 1
@@ -255,12 +262,15 @@
    "fieldname": "place",
    "fieldtype": "Data",
    "label": "Place",
-   "in_list_view": 1
+   "in_list_view": 1,
+   "in_standard_filter": 1
   },
   {
    "fieldname": "transaction_type",
    "fieldtype": "Data",
-   "label": "Transaction Type"
+   "label": "Transaction Type",
+   "in_standard_filter": 1,
+   "in_list_view": 1
   },
   {
    "fieldname": "lot_no",
@@ -269,12 +279,50 @@
    "hidden": 1,
    "read_only": 1,
    "in_list_view": 1,
-   "description": "Depo RST (Rice Dispatch) only: copy of TP No, which holds the Lot No. Shown as a list column."
+   "description": "Depo RST (Rice Dispatch) only: copy of TP No, which holds the Lot No. Shown as a list column.",
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "section_break_bags",
+   "fieldtype": "Section Break",
+   "label": "Bags"
+  },
+  {
+   "fieldname": "jute_bags",
+   "fieldtype": "Int",
+   "label": "Jute Bags",
+   "non_negative": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "plastic_bags",
+   "fieldtype": "Int",
+   "label": "Plastic Bags",
+   "non_negative": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "column_break_bags",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "old_bags",
+   "fieldtype": "Int",
+   "label": "Old Bags",
+   "non_negative": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "total_bags",
+   "fieldtype": "Int",
+   "label": "Total Bags",
+   "read_only": 1,
+   "description": "Jute Bags + Plastic Bags + Old Bags."
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-18 16:00:00.000000",
+ "modified": "2026-11-19 13:00:00.000000",
  "modified_by": "Administrator",
  "module": "Procurement",
  "name": "RST Details",

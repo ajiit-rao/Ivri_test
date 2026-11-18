@@ -3,7 +3,7 @@ import re
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import flt
+from frappe.utils import cint, flt
 
 from ivri_od.procurement.datetime_fields import ensure_doc_datetime
 from ivri_od.procurement.doctype.ppas_transit_pass.pass_unique_key import (
@@ -35,6 +35,7 @@ class RSTDetails(Document):
 		self._set_tp_status()
 		self._set_lot_no()
 		self._set_chhatni()
+		self._set_total_bags()
 		self._validate_mill_name()
 		self._validate_local_purchase_order()
 
@@ -115,6 +116,10 @@ class RSTDetails(Document):
 		self.agent_name = details.get("agent_name") or ""
 		self.tp_quantity = flt(details.get("tp_quantity"))
 		self._set_season_code_and_rst_unique_key(details)
+
+	def _set_total_bags(self):
+		"""Total Bags = Jute Bags + Plastic Bags + Old Bags."""
+		self.total_bags = sum(cint(self.get(name)) for name in ("jute_bags", "plastic_bags", "old_bags"))
 
 	def _set_chhatni(self):
 		"""Hidden, for future RST-based Chhatni entry; same formulas as the Chhatni DocType.

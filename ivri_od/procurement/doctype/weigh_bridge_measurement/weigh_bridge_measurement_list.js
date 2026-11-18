@@ -23,6 +23,7 @@ function wbm_quality_status(value, doc) {
 // The list shows only these columns, in this order (RST No is the title field, so it is always first).
 const WBM_LIST_COLUMN_ORDER = [
 	"rst_no",
+	"transaction_type",
 	"actual_truck_no",
 	"truck_no_in_tp",
 	"transit_pass_no",
@@ -57,6 +58,7 @@ const WBM_LIST_LABELS = {
 // Widths in pixels, wide enough for the heading and a normal value. Staff can still drag a column edge.
 const WBM_LIST_WIDTHS = {
 	rst_no: 120,
+	transaction_type: 140,
 	party_name: 220,
 	transit_pass_no: 110,
 	lot_no: 120,
@@ -184,6 +186,7 @@ const WBM_FILTERS = [
 	"lot_no",
 	"party_name",
 	"commodity",
+	"transaction_type",
 	"tp_status",
 	"quality_test",
 ];
@@ -191,6 +194,47 @@ const WBM_FILTER_LABELS = {
 	actual_truck_no: "Arrived Vehicle No",
 	truck_no_in_tp: "TP Vehicle No",
 };
+
+// Status drop-down. Status has too many saved values to list one by one (every commodity of a private
+// deal has its own "Local {Commodity} {Purchase|Sale}" text), so the private deals are grouped.
+const WBM_STATUS_FILTERS = {
+	"TP Received": ["=", "TP Received"],
+	"TP Not Received": ["=", "TP Not Received"],
+	"PPC Mismatch": ["=", "PPC Mismatch"],
+	"Rice Dispatch": ["=", "Rice Dispatch"],
+	"Local (Private) - All": ["like", "Local%"],
+	"Local - Purchase": ["like", "Local% Purchase"],
+	"Local - Sale": ["like", "Local% Sale"],
+};
+
+function add_wbm_status_filter(listview, wrapper) {
+	if (listview.wbm_status_filter) {
+		$(listview.wbm_status_filter.wrapper).remove();
+	}
+	listview.wbm_status_filter = listview.page.add_field(
+		{
+			fieldname: "wbm_status_filter",
+			label: __("Status"),
+			fieldtype: "Select",
+			options: ["", ...Object.keys(WBM_STATUS_FILTERS)].map((label) => ({ label: __(label), value: label })),
+			change() {
+				const chosen = WBM_STATUS_FILTERS[this.get_value()];
+				const area = listview.filter_area;
+				// Drop the previous Status choice, then apply the new one.
+				area.filter_list.get_filter("tp_status")?.remove();
+				if (chosen) {
+					area.add([["Weigh Bridge Measurement", "tp_status", ...chosen]]);
+				} else {
+					area.filter_list.apply();
+				}
+			},
+		},
+		wrapper
+	);
+	// Frappe sends every field in page.fields_dict to the query as "fieldname = value". This drop-down is not
+	// a column (it applies the tp_status filter above), so keep it out of that list.
+	delete listview.page.fields_dict.wbm_status_filter;
+}
 
 async function make_wbm_filters_dropdown(listview) {
 	const wrapper = listview.filter_area && listview.filter_area.standard_filters_wrapper;
@@ -212,6 +256,10 @@ async function make_wbm_filters_dropdown(listview) {
 	});
 
 	WBM_FILTERS.forEach((fieldname) => {
+		if (fieldname === "tp_status") {
+			add_wbm_status_filter(listview, wrapper);
+			return;
+		}
 		const meta = frappe.meta.get_docfield("Weigh Bridge Measurement", fieldname);
 		if (!meta) return;
 		const is_select = meta.fieldtype === "Select";

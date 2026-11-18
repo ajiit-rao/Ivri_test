@@ -298,7 +298,7 @@ class GRNNote(Document):
 			frappe.db.get_value(
 				"Weigh Bridge Measurement",
 				wbm_name,
-				["party_name", "lot_no", "date", "measurement_date", "measurement_time"],
+				["party_name", "lot_no", "date"],
 				as_dict=True,
 			)
 			if wbm_name
@@ -309,9 +309,6 @@ class GRNNote(Document):
 			self.lot_no = (wbm.lot_no or "").strip()
 			if wbm.date:
 				self.receipt_datetime = get_datetime(wbm.date)
-			elif wbm.measurement_date:
-				self.receipt_date = wbm.measurement_date
-				self.receipt_time = wbm.measurement_time
 			ensure_doc_datetime(self, "receipt_datetime", date_field="receipt_date", time_field="receipt_time")
 		depo = get_depo_for_party(self.party_name)
 		self.depo = depo.get("name") if depo else None
@@ -923,7 +920,7 @@ def sync_grn_from_weigh_bridge(wbm_name: str) -> str | None:
 		wbm = frappe.db.get_value(
 			"Weigh Bridge Measurement",
 			wbm_name,
-			["rst_no", "pass_unique_key", "date", "measurement_date", "measurement_time", "commodity"],
+			["rst_no", "pass_unique_key", "date", "commodity"],
 			as_dict=True,
 		)
 		if not wbm:
@@ -942,9 +939,6 @@ def sync_grn_from_weigh_bridge(wbm_name: str) -> str | None:
 			grn._sync_local_procurement_from_rst()
 			if wbm.date:
 				grn.receipt_datetime = get_datetime(wbm.date)
-			elif wbm.measurement_date:
-				grn.receipt_date = wbm.measurement_date
-				grn.receipt_time = wbm.measurement_time
 			ensure_doc_datetime(
 				grn,
 				"receipt_datetime",
