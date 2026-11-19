@@ -59,7 +59,7 @@ frappe.listview_settings["RST Details"] = {
 
 // Every filter above the list is a dropdown that lists the values already saved, so staff pick
 // instead of typing. Values are read once when the list opens.
-const DROPDOWN_FILTERS = ["rst_no", "vehicle_no", "tp_no", "lot_no", "party_name", "place", "commodity"];
+const DROPDOWN_FILTERS = ["rst_no", "vehicle_no", "tp_no", "lot_no", "party_name", "place", "commodity", "transaction_type"];
 
 // Order of the filter boxes above the list. "rst_status_filter" is the Status drop-down added below and
 // "entry_date" is the Date filter; both are moved into this order after the drop-downs are rebuilt.

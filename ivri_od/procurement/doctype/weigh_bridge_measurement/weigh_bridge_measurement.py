@@ -1311,6 +1311,7 @@ FILTER_VALUE_FIELDS = (
 	"lot_no",
 	"party_name",
 	"commodity",
+	"transaction_type",
 )
 
 

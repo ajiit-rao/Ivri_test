@@ -184,6 +184,7 @@ const WBM_FILTERS = [
 	"lot_no",
 	"party_name",
 	"commodity",
+	"transaction_type",
 	"tp_status",
 	"quality_test",
 ];
