@@ -22,6 +22,7 @@ from ivri_od.procurement.portal_sync import (
 	ACCEPTED_DATE_COLUMN,
 	NET_WEIGHT_COLUMN,
 	NOISE_HEADER,
+	is_calendar_row,
 	normalize_details,
 	parse_key_columns,
 )
@@ -99,7 +100,10 @@ def execute(
 	Transit Challan: the DCs of one season (see dc_transit_challan_from_dcro.season_filter)."""
 	filters = frappe._dict(filters or {})
 	records = _get_records(filters)
+	# Weeks of a date-picker calendar saved by an older agent (Su, Mo, ... columns) are left out.
 	cells_by_record = {r.name: _load(r.row_data) for r in records}
+	records = [r for r in records if not is_calendar_row(cells_by_record[r.name])]
+	cells_by_record = {r.name: cells_by_record[r.name] for r in records}
 	if row_filter:
 		records = [r for r in records if row_filter(r, cells_by_record[r.name])]
 	if not records:
