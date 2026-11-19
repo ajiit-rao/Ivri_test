@@ -67,6 +67,17 @@ def normalize_cells(cells) -> dict[str, str]:
 	return clean
 
 
+# Headers of a date-picker calendar (Su Mo Tu ... / Sun Mon Tue ...). The SCMS
+# Transit Challan page has one; its weeks were once read as rows.
+WEEKDAY_HEADER = re.compile(r"^(su|mo|tu|we|th|fr|sa)[a-z]{0,7}$", re.IGNORECASE)
+
+
+def is_calendar_row(cells) -> bool:
+	"""True for a row of a date-picker calendar: every header is a weekday name."""
+	headers = [_squash(h) for h in (cells or {}) if _squash(h)]
+	return len(headers) >= 5 and all(WEEKDAY_HEADER.match(h) for h in headers)
+
+
 def parse_key_columns(key_columns: str | None) -> list[str]:
 	return [c.strip() for c in (key_columns or "").split(",") if c.strip()]
 
@@ -669,6 +680,8 @@ def import_rows(
 	result = {"inserted": 0, "updated": 0, "unchanged": 0, "failed": 0, "receipts": 0, "errors": [], "new_rows": []}
 	for idx, row in enumerate(rows, start=1):
 		row = row or {}
+		if isinstance(row.get("cells"), dict) and is_calendar_row(row["cells"]):
+			continue  # a week of the page's date picker, not a portal row
 		save_point = f"portal_row_{idx}"
 		frappe.db.savepoint(save_point)
 		try:
