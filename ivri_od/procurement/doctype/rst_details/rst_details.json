@@ -44,6 +44,7 @@
   "plastic_bags",
   "column_break_bags",
   "old_bags",
+  "new_bags",
   "total_bags"
  ],
  "fields": [
@@ -310,19 +311,28 @@
    "fieldtype": "Int",
    "label": "Old Bags",
    "non_negative": 1,
-   "default": "0"
+   "default": "0",
+   "description": "Bag Condition: old bags."
+  },
+  {
+   "default": "0",
+   "fieldname": "new_bags",
+   "fieldtype": "Int",
+   "label": "New Bags",
+   "non_negative": 1,
+   "description": "Bag Condition: new bags."
   },
   {
    "fieldname": "total_bags",
    "fieldtype": "Int",
    "label": "Total Bags",
    "read_only": 1,
-   "description": "Jute Bags + Plastic Bags + Old Bags."
+   "description": "Jute Bags + Plastic Bags."
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-19 13:00:00.000000",
+ "modified": "2026-11-18 19:30:00.000000",
  "modified_by": "Administrator",
  "module": "Procurement",
  "name": "RST Details",

@@ -1,13 +1,15 @@
 # Copyright (c) 2026, Profezzo and Contributors
 # See license.txt
-"""Weigh Bridge Bag Details always mirror the linked Quality Check.
+"""A weighment has two bag tables. Both take their rows from one place, chosen in this order:
 
-- a linked QC gives its Jute Bag No / Plastic Bag No / Total Bags, also when the QC is saved after the weighment;
-- a changed QC replaces the rows with the new QC's lines;
-- no QC (or one without bag lines) leaves no rows and Total Bags 0, never the lines of a QC the weighment left;
-- the entered per-bag weights are kept by row.
+1. Quality Check accepted (Accepted / Partially Accepted) with lines: the QC lines;
+2. otherwise the RST bags, when the RST has any;
+3. otherwise one row with 0.
 
-Mocked tests: no site, no database.
+- Bag Type (bag_weight_details): Jute / Plastic, Total = Jute + Plastic.
+- Bag Condition (old_new_bags): Old / New (the same bags, split another way; not added to Total).
+
+The GRN Note copies both from the weighment. Mocked tests: no site, no database.
 """
 
 import unittest
@@ -16,37 +18,54 @@ from unittest.mock import MagicMock, call, patch
 
 import frappe
 
-from ivri_od.procurement.doctype.weigh_bridge_measurement import weigh_bridge_measurement as wbm_module
+from ivri_od.procurement.doctype.grn_note import grn_note as grn_module
 from ivri_od.procurement.doctype.weigh_bridge_measurement.weigh_bridge_measurement import (
 	WeighBridgeMeasurement,
 	_ensure_wbm_bag_details_from_qc,
+	build_wbm_bag_rows,
+	build_wbm_condition_rows,
 	unlink_quality_check_from_weigh_bridge,
 )
 
 MODULE = "ivri_od.procurement.doctype.weigh_bridge_measurement.weigh_bridge_measurement"
+ZERO_TYPE = [(0, 0, 0)]
+ZERO_CONDITION = [(0, 0)]
 
 
-def row(jute=0, plastic=0, w_jute=0.0, w_plastic=0.0):
-	return SimpleNamespace(
-		jute_bags=jute, plastic_bags=plastic, total_bags=jute + plastic,
-		weight_per_jute_kg=w_jute, weight_per_plastic_kg=w_plastic,
-		jute_total_qt=0, plastic_total_qt=0, gunny_weight_qt=0,
-	)
+def row(jute=0, plastic=0):
+	return SimpleNamespace(jute_bags=jute, plastic_bags=plastic, total_bags=jute + plastic)
+
+
+def type_counts(rows):
+	return [(_get(r, "jute_bags"), _get(r, "plastic_bags"), _get(r, "total_bags")) for r in rows]
+
+
+def condition_counts(rows):
+	return [(_get(r, "old_bags"), _get(r, "new_bags")) for r in rows]
+
+
+def _get(r, k):
+	return r[k] if isinstance(r, dict) else getattr(r, k)
 
 
 class _Wbm:
-	"""Just enough of a Weigh Bridge Measurement for the Bag Details methods."""
+	"""Just enough of a Weigh Bridge Measurement for the bag table methods."""
 
-	def __init__(self, quality_check="", rows=()):
+	def __init__(self, quality_check="", rows=(), rst="", condition=()):
 		self.quality_check = quality_check
+		self.demo_rst_data = rst
 		self.bag_weight_details = list(rows)
-		self.total_bags = sum(r.jute_bags + r.plastic_bags for r in rows)
+		self.old_new_bags = list(condition)
+		self.total_bags = sum(r.total_bags for r in rows)
 		self.flags = SimpleNamespace()
 		self.save = MagicMock()
 
+	def get(self, key):
+		return getattr(self, key, None)
+
 	def append(self, fieldname, values):
-		new = row()
-		self.bag_weight_details.append(new)
+		new = SimpleNamespace(**values)
+		getattr(self, fieldname).append(new)
 		return new
 
 	_sync_bag_details_from_qc = WeighBridgeMeasurement._sync_bag_details_from_qc
@@ -56,76 +75,145 @@ class _Wbm:
 
 
 class _NoSite(unittest.TestCase):
+	"""Fake database: a QC decision, the QC lines of both tables, and the RST bag fields."""
+
 	def setUp(self):
 		frappe.local.lang = "en"
+		self.decision = ""
+		self.rst = None  # dict of RST bag fields, or None when there is no RST
 		self.db = MagicMock()
-		self.db.exists.return_value = True
-		patcher = patch.object(frappe, "db", self.db, create=True)
+		self.db.exists.side_effect = lambda doctype, name=None: self.rst is not None if doctype == "RST Details" else True
+		self.db.has_column.return_value = True
+		self.db.get_value.side_effect = self._get_value
+		for patcher in (
+			patch.object(frappe, "db", self.db, create=True),
+			# frappe.flt needs a site (it reads system settings); plain rounding is enough here
+			patch(f"{MODULE}._trim_qty", side_effect=lambda v, d=3: round(float(v or 0), d)),
+		):
+			patcher.start()
+			self.addCleanup(patcher.stop)
+		self.qc_lines()
+		self.qc_condition()
+
+	def _get_value(self, doctype, name, fields=None, as_dict=False, **kwargs):
+		if doctype == "Quality Check":
+			return self.decision
+		if doctype == "RST Details":
+			return frappe._dict(self.rst or {})
+		return None
+
+	def _patch(self, target, value):
+		patcher = patch(target, return_value=value)
 		patcher.start()
 		self.addCleanup(patcher.stop)
 
 	def qc_lines(self, *lines):
-		"""The packet lines of the linked Quality Check, as (jute, plastic)."""
-		patcher = patch(f"{MODULE}._qc_bag_lines", return_value=[{"jute_pkt_no": j, "no_of_plastic_bag": p} for j, p in lines])
-		patcher.start()
-		self.addCleanup(patcher.stop)
+		"""Bag Type lines of the Quality Check, as (jute, plastic)."""
+		self._patch(f"{MODULE}._qc_bag_lines", [{"jute_pkt_no": j, "no_of_plastic_bag": p} for j, p in lines])
+
+	def qc_condition(self, *lines):
+		"""Bag Condition lines of the Quality Check, as (old, new)."""
+		self._patch(f"{MODULE}._qc_condition_lines", [{"old_bags": o, "new_bags": n} for o, n in lines])
 
 
-class TestBagDetailsMirrorTheLinkedQc(_NoSite):
-	def test_a_linked_qc_gives_its_jute_plastic_and_total_bags(self):
-		self.qc_lines((120, 48))
-		wbm = _Wbm("QC-1")
-		wbm._sync_bag_details_from_qc()
-		self.assertEqual([(r.jute_bags, r.plastic_bags, r.total_bags) for r in wbm.bag_weight_details], [(120, 48, 168)])
-		self.assertEqual(wbm.total_bags, 168)
+class TestBagTypeRule(_NoSite):
+	def test_accepted_qc_gives_its_lines(self):
+		self.decision = "Accepted"
+		self.qc_lines((120, 48), (10, 0))
+		self.rst = {"jute_bags": 5, "plastic_bags": 5}  # ignored: QC wins
+		self.assertEqual(type_counts(build_wbm_bag_rows("QC-1", "RST-1")), [(120, 48, 168), (10, 0, 10)])
 
-	def test_a_qc_saved_after_the_weighment_fills_the_empty_table(self):
-		wbm = _Wbm("", [])  # weighed first: no QC, no rows
-		wbm._sync_bag_details_from_qc()
-		self.assertEqual((wbm.bag_weight_details, wbm.total_bags), ([], 0))
+	def test_partially_accepted_qc_counts_as_accepted(self):
+		self.decision = "Partially Accepted"
 		self.qc_lines((0, 196))
-		wbm.quality_check = "QC-9"  # the QC arrives
+		self.assertEqual(type_counts(build_wbm_bag_rows("QC-1", "")), [(0, 196, 196)])
+
+	def test_qc_not_accepted_takes_the_rst_bags(self):
+		self.qc_lines((120, 48))  # QC saved but no decision yet
+		self.rst = {"jute_bags": 100, "plastic_bags": 20}
+		self.assertEqual(type_counts(build_wbm_bag_rows("QC-1", "RST-1")), [(100, 20, 120)])
+
+	def test_accepted_qc_without_lines_falls_back_to_the_rst(self):
+		self.decision = "Accepted"
+		self.rst = {"jute_bags": 7, "plastic_bags": 0}
+		self.assertEqual(type_counts(build_wbm_bag_rows("QC-1", "RST-1")), [(7, 0, 7)])
+
+	def test_rst_without_bags_gives_one_zero_row(self):
+		self.rst = {"jute_bags": 0, "plastic_bags": 0}
+		self.assertEqual(type_counts(build_wbm_bag_rows("", "RST-1")), ZERO_TYPE)
+
+	def test_no_qc_and_no_rst_gives_one_zero_row(self):
+		self.assertEqual(type_counts(build_wbm_bag_rows("", "")), ZERO_TYPE)
+
+
+class TestBagConditionRule(_NoSite):
+	def test_accepted_qc_gives_its_old_and_new(self):
+		self.decision = "Accepted"
+		self.qc_condition((250, 50))
+		self.rst = {"old_bags": 1, "new_bags": 1}  # ignored: QC wins
+		self.assertEqual(condition_counts(build_wbm_condition_rows("QC-1", "RST-1")), [(250, 50)])
+
+	def test_qc_not_accepted_takes_the_rst_old_and_new(self):
+		self.qc_condition((250, 50))
+		self.rst = {"old_bags": 90, "new_bags": 30}
+		self.assertEqual(condition_counts(build_wbm_condition_rows("QC-1", "RST-1")), [(90, 30)])
+
+	def test_rst_with_only_new_bags(self):
+		self.rst = {"old_bags": 0, "new_bags": 40}
+		self.assertEqual(condition_counts(build_wbm_condition_rows("", "RST-1")), [(0, 40)])
+
+	def test_nothing_known_gives_one_zero_row(self):
+		self.rst = {"old_bags": 0, "new_bags": 0}
+		self.assertEqual(condition_counts(build_wbm_condition_rows("", "RST-1")), ZERO_CONDITION)
+		self.assertEqual(condition_counts(build_wbm_condition_rows("", "")), ZERO_CONDITION)
+
+
+class TestWeighmentSave(_NoSite):
+	def test_save_fills_both_tables_and_total_is_jute_plus_plastic(self):
+		self.rst = {"jute_bags": 100, "plastic_bags": 20, "old_bags": 90, "new_bags": 30}
+		wbm = _Wbm("", [], rst="RST-1")
 		wbm._sync_bag_details_from_qc()
-		self.assertEqual((len(wbm.bag_weight_details), wbm.total_bags), (1, 196))
+		self.assertEqual(type_counts(wbm.bag_weight_details), [(100, 20, 120)])
+		self.assertEqual(condition_counts(wbm.old_new_bags), [(90, 30)])
+		self.assertEqual(wbm.total_bags, 120)
 
-	def test_a_changed_qc_replaces_the_rows_with_the_new_qcs_lines(self):
-		self.qc_lines((150, 0))
-		wbm = _Wbm("QC-2", [row(0, 168)])  # rows were fetched from the previous QC
+	def test_qc_accepted_later_replaces_the_rst_rows(self):
+		self.rst = {"jute_bags": 100, "plastic_bags": 0, "old_bags": 100, "new_bags": 0}
+		wbm = _Wbm("", [], rst="RST-1")
 		wbm._sync_bag_details_from_qc()
-		self.assertEqual([(r.jute_bags, r.plastic_bags) for r in wbm.bag_weight_details], [(150, 0)])
-		self.assertEqual(wbm.total_bags, 150)
-
-	def test_no_qc_leaves_no_rows_and_zero_total(self):
-		wbm = _Wbm("", [row(150, 0)])
+		self.decision = "Accepted"
+		self.qc_lines((90, 12))
+		self.qc_condition((60, 42))
+		wbm.quality_check = "QC-9"
 		wbm._sync_bag_details_from_qc()
-		self.assertEqual((wbm.bag_weight_details, wbm.total_bags), ([], 0))
+		self.assertEqual(type_counts(wbm.bag_weight_details), [(90, 12, 102)])
+		self.assertEqual(condition_counts(wbm.old_new_bags), [(60, 42)])
+		self.assertEqual(wbm.total_bags, 102)
 
-	def test_a_qc_without_bag_lines_does_not_keep_another_qcs_bags(self):
-		self.qc_lines()  # the linked QC has no packet lines
-		wbm = _Wbm("QC-LEGACY", [row(150, 0)])
+	def test_rows_that_already_match_are_kept(self):
+		self.rst = {"jute_bags": 10, "plastic_bags": 0, "old_bags": 10, "new_bags": 0}
+		existing, existing_condition = row(10, 0), SimpleNamespace(old_bags=10, new_bags=0)
+		wbm = _Wbm("", [existing], rst="RST-1", condition=[existing_condition])
 		wbm._sync_bag_details_from_qc()
-		self.assertEqual((wbm.bag_weight_details, wbm.total_bags), ([], 0))
+		self.assertIs(wbm.bag_weight_details[0], existing)
+		self.assertIs(wbm.old_new_bags[0], existing_condition)
 
-	def test_a_qc_record_that_does_not_exist_leaves_no_rows(self):
-		self.db.exists.return_value = False
-		wbm = _Wbm("QC-GONE", [row(150, 0)])
+	def test_a_row_saved_with_an_old_total_is_rewritten(self):
+		self.rst = {"jute_bags": 50, "plastic_bags": 50}
+		stale = SimpleNamespace(jute_bags=50, plastic_bags=50, total_bags=150)  # old formula added Old Bags
+		wbm = _Wbm("", [stale], rst="RST-1")
 		wbm._sync_bag_details_from_qc()
-		self.assertEqual((wbm.bag_weight_details, wbm.total_bags), ([], 0))
+		self.assertEqual(type_counts(wbm.bag_weight_details), [(50, 50, 100)])
 
-	def test_entered_weights_are_kept_by_row_when_the_bags_are_fetched_again(self):
-		self.qc_lines((100, 0))
-		# frappe.flt needs a site (it reads system settings); plain rounding is enough for this check
-		patcher = patch(f"{MODULE}._trim_qty", side_effect=lambda v, d=3: round(float(v or 0), d))
-		patcher.start()
-		self.addCleanup(patcher.stop)
-		wbm = _Wbm("QC-1", [row(100, 0, w_jute=1.5)])
+	def test_stale_qc_rows_go_back_to_zero_when_nothing_is_known(self):
+		wbm = _Wbm("", [row(150, 0)], condition=[SimpleNamespace(old_bags=150, new_bags=0)])
 		wbm._sync_bag_details_from_qc()
-		self.assertEqual(wbm.bag_weight_details[0].weight_per_jute_kg, 1.5)
-		self.assertEqual(wbm.bag_weight_details[0].jute_total_qt, 1.5)  # 1.5 kg x 100 bags = 150 kg = 1.5 QT
+		self.assertEqual(type_counts(wbm.bag_weight_details), ZERO_TYPE)
+		self.assertEqual(condition_counts(wbm.old_new_bags), ZERO_CONDITION)
+		self.assertEqual(wbm.total_bags, 0)
 
-
-class TestPersistingBagDetails(_NoSite):
-	def test_persist_writes_the_qc_lines(self):
+	def test_persist_writes_without_validate(self):
+		self.decision = "Accepted"
 		self.qc_lines((10, 5))
 		wbm = _Wbm("QC-1")
 		wbm._persist_bag_details_from_qc()
@@ -133,56 +221,71 @@ class TestPersistingBagDetails(_NoSite):
 		wbm.save.assert_called_once_with(ignore_permissions=True)
 		self.assertTrue(wbm.flags.ignore_validate)
 
-	def test_persist_also_empties_the_table_when_there_is_no_qc(self):
-		wbm = _Wbm("", [row(150, 0)])
-		wbm._persist_bag_details_from_qc()
-		self.assertEqual((wbm.bag_weight_details, wbm.total_bags), ([], 0))
-		wbm.save.assert_called_once()
-
 
 class TestEnsureBagDetails(_NoSite):
+	"""Background sync (QC saved / moved): rewrites only when a saved table differs from the rule."""
+
 	def setUp(self):
 		super().setUp()
 		self.doc = MagicMock()
-		for target, value in (("frappe.get_doc", self.doc), ("frappe.get_all", MagicMock())):
-			patcher = patch(target, return_value=value if target == "frappe.get_doc" else [])
-			mock = patcher.start()
+		self.saved = frappe._dict(quality_check="", demo_rst_data="")
+		self.db.get_value.side_effect = self._get_value_ensure
+		self.tables = {"Weigh Bridge Bag Detail": [], "Quality Check Old New Bag Detail": []}
+		for target, kwargs in (
+			("frappe.get_doc", {"return_value": self.doc}),
+			("frappe.get_all", {"side_effect": lambda doctype, **kw: self.tables[doctype]}),
+		):
+			patcher = patch(target, **kwargs)
+			patcher.start()
 			self.addCleanup(patcher.stop)
-			if target == "frappe.get_all":
-				self.get_all = mock
 
-	def _ensure(self, existing, qc, details, stored_qc=""):
-		self.get_all.return_value = [SimpleNamespace(jute_bags=j, plastic_bags=p) for j, p in existing]
-		self.db.get_value.return_value = stored_qc
-		_ensure_wbm_bag_details_from_qc("WBM-1", {"quality_check": qc, "bag_details": [{"jute_bags": j, "plastic_bags": p} for j, p in details]})
+	def _get_value_ensure(self, doctype, name, fields=None, as_dict=False, **kwargs):
+		if doctype == "Weigh Bridge Measurement":
+			return self.saved if as_dict else self.saved.get(fields)
+		return self._get_value(doctype, name, fields, as_dict)
 
-	def test_rows_that_match_the_qc_are_left_alone(self):
-		self._ensure([(120, 48)], "QC-1", [(120, 48)], stored_qc="QC-1")
+	def _ensure(self, bag_type, condition, qc=""):
+		self.tables["Weigh Bridge Bag Detail"] = [frappe._dict(jute_bags=j, plastic_bags=p, total_bags=j + p) for j, p in bag_type]
+		self.tables["Quality Check Old New Bag Detail"] = [frappe._dict(old_bags=o, new_bags=n) for o, n in condition]
+		_ensure_wbm_bag_details_from_qc("WBM-1", {"quality_check": qc})
+
+	def test_matching_tables_are_left_alone(self):
+		self.saved.update(quality_check="QC-1")
+		self.decision = "Accepted"
+		self.qc_lines((120, 48))
+		self.qc_condition((100, 68))
+		self._ensure([(120, 48)], [(100, 68)], "QC-1")
 		self.doc._persist_bag_details_from_qc.assert_not_called()
 
-	def test_rows_that_differ_from_the_qc_are_rewritten(self):
-		self._ensure([(0, 168)], "QC-1", [(150, 0)], stored_qc="QC-1")
+	def test_a_different_bag_type_is_rewritten(self):
+		self.saved.update(quality_check="QC-1")
+		self.decision = "Accepted"
+		self.qc_lines((150, 0))
+		self._ensure([(0, 168)], [(0, 0)], "QC-1")
 		self.doc._persist_bag_details_from_qc.assert_called_once()
 
-	def test_stale_rows_are_removed_when_the_weighment_has_no_qc(self):
-		self._ensure([(150, 0)], "", [], stored_qc="")
+	def test_a_different_bag_condition_is_rewritten(self):
+		self.saved.update(demo_rst_data="RST-1")
+		self.rst = {"jute_bags": 0, "plastic_bags": 0, "old_bags": 5, "new_bags": 0}
+		self._ensure([(0, 0)], [(0, 0)])
 		self.doc._persist_bag_details_from_qc.assert_called_once()
 
-	def test_stale_rows_are_removed_when_the_qc_has_no_bag_lines(self):
-		self._ensure([(150, 0)], "QC-LEGACY", [], stored_qc="QC-LEGACY")
+	def test_empty_tables_get_the_zero_rows(self):
+		self._ensure([], [])
 		self.doc._persist_bag_details_from_qc.assert_called_once()
 
-	def test_nothing_is_written_when_there_is_nothing_to_remove(self):
-		self._ensure([], "", [], stored_qc="")
+	def test_zero_rows_that_are_already_there_are_left_alone(self):
+		self._ensure([(0, 0)], [(0, 0)])
 		self.doc._persist_bag_details_from_qc.assert_not_called()
 
 	def test_a_lookup_that_finds_no_qc_does_not_override_a_weighment_that_is_still_linked(self):
-		self._ensure([(150, 0)], "", [], stored_qc="QC-1")
+		self.saved.update(quality_check="QC-1")
+		self._ensure([(150, 0)], [(0, 0)], "")
 		self.doc._persist_bag_details_from_qc.assert_not_called()
 
 
 class TestQcMovedToAnotherVisit(_NoSite):
-	def test_the_old_weighments_lose_their_bags_with_the_qc_link_before_weights_are_recalculated(self):
+	def test_the_old_weighments_are_resynced_before_weights_are_recalculated(self):
 		order = MagicMock()
 		with patch("frappe.get_all", return_value=["WBM-1"]), patch(f"{MODULE}._ensure_wbm_bag_details_from_qc", order.ensure), \
 			patch(f"{MODULE}.persist_wbm_quality_and_net_after_qc_sync", order.net), \
@@ -190,35 +293,95 @@ class TestQcMovedToAnotherVisit(_NoSite):
 			self.db.set_value = order.set_value
 			result = unlink_quality_check_from_weigh_bridge("QC-1", "GE-NEW")
 		self.assertEqual(result, ["WBM-1"])
-		names = [c[0] for c in order.mock_calls]
-		self.assertEqual(names, ["set_value", "ensure", "net", "grn"])
+		self.assertEqual([c[0] for c in order.mock_calls], ["set_value", "ensure", "net", "grn"])
 		self.assertEqual(order.ensure.call_args, call("WBM-1", {"quality_check": "", "bag_details": []}))
-		self.assertEqual(order.set_value.call_args.args[2]["quality_check"], "")
 
 
-class TestBagDetailsAreShown(unittest.TestCase):
-	"""The table is on the form for every weighment, not only Gunny Cut: it is the QC's data, read only."""
+class TestGrnCopiesFromWeighment(unittest.TestCase):
+	def setUp(self):
+		db = MagicMock()
+		db.exists.return_value = True
+		patcher = patch.object(frappe, "db", db, create=True)
+		patcher.start()
+		self.addCleanup(patcher.stop)
 
+	def test_grn_total_is_jute_plus_plastic(self):
+		rows = [frappe._dict(jute_bags=100, plastic_bags=20)]
+		with patch("frappe.get_all", return_value=rows):
+			self.assertEqual(grn_module._wbm_bag_counts_from_child_table("WBM-1"), (100, 20, 120))
+
+	def test_grn_bag_condition_comes_from_the_weighment_even_without_qc(self):
+		grn = SimpleNamespace(old_new_bags=["stale"], weigh_bridge_measurement="WBM-1")
+		grn.append = lambda f, v: getattr(grn, f).append(v)
+		rows = [frappe._dict(old_bags=90, new_bags=30)]
+		with patch("frappe.get_all", return_value=rows) as get_all:
+			grn_module.GRNNote._apply_wbm_bag_condition(grn, "WBM-1")
+		self.assertEqual(grn.old_new_bags, [{"old_bags": 90, "new_bags": 30}])
+		self.assertEqual(get_all.call_args.kwargs["filters"]["parenttype"], "Weigh Bridge Measurement")
+
+
+class TestFormFields(unittest.TestCase):
 	def setUp(self):
 		import json
 		from pathlib import Path
 
 		base = Path(__file__).resolve().parents[1] / "doctype"
-		self.wbm = {f["fieldname"]: f for f in json.loads((base / "weigh_bridge_measurement/weigh_bridge_measurement.json").read_text())["fields"]}
-		self.child = {f["fieldname"]: f for f in json.loads((base / "weigh_bridge_bag_detail/weigh_bridge_bag_detail.json").read_text())["fields"]}
 
-	def test_the_table_has_no_condition_and_is_read_only(self):
-		table = self.wbm["bag_weight_details"]
-		self.assertEqual((table["fieldtype"], table["options"], table.get("read_only")), ("Table", "Weigh Bridge Bag Detail", 1))
-		self.assertNotIn("depends_on", table)
-		self.assertNotIn("hidden", table)
+		def load(p):
+			data = json.loads((base / p).read_text())
+			return {f["fieldname"]: f for f in data["fields"]}, data["field_order"]
 
-	def test_the_rows_show_jute_plastic_and_total_bags(self):
-		for name, label in (("jute_bags", "Jute Bag No (Bags)"), ("plastic_bags", "Plastic Bag No (Bags)"), ("total_bags", "Total Bags")):
-			field = self.child[name]
-			self.assertEqual((field["label"], field.get("in_list_view"), field.get("read_only")), (label, 1, 1), name)
-			self.assertNotIn("hidden", field)
-			self.assertNotIn("depends_on", field)
+		self.wbm, self.wbm_order = load("weigh_bridge_measurement/weigh_bridge_measurement.json")
+		self.child, _ = load("weigh_bridge_bag_detail/weigh_bridge_bag_detail.json")
+		self.grn, _ = load("grn_note/grn_note.json")
+		self.rst, self.rst_order = load("rst_details/rst_details.json")
+		self.qc, _ = load("quality_check/quality_check.json")
+
+	def test_weighment_has_bag_type_then_bag_condition(self):
+		bag_type, condition = self.wbm["bag_weight_details"], self.wbm["old_new_bags"]
+		self.assertEqual((bag_type["label"], bag_type["options"], bag_type.get("read_only")), ("Bag Type", "Weigh Bridge Bag Detail", 1))
+		self.assertEqual(
+			(condition["label"], condition["options"], condition.get("read_only")),
+			("Bag Condition (Old / New)", "Quality Check Old New Bag Detail", 1),
+		)
+		self.assertLess(self.wbm_order.index("bag_weight_details"), self.wbm_order.index("old_new_bags"))
+		for table in (bag_type, condition):
+			self.assertNotIn("depends_on", table)
+			self.assertNotIn("hidden", table)
+
+	def test_bag_type_rows_are_jute_plastic_total(self):
+		self.assertNotIn("old_bags", self.child)
+		for name in ("jute_bags", "plastic_bags", "total_bags"):
+			self.assertEqual((self.child[name].get("in_list_view"), self.child[name].get("read_only")), (1, 1), name)
+
+	def test_rst_has_new_bags_after_old_bags(self):
+		self.assertEqual((self.rst["new_bags"]["fieldtype"], self.rst["new_bags"].get("default")), ("Int", "0"))
+		self.assertEqual(self.rst_order.index("new_bags"), self.rst_order.index("old_bags") + 1)
+
+	def test_bag_condition_label_on_qc_and_grn(self):
+		self.assertEqual(self.qc["old_new_bags"]["label"], "Bag Condition (Old / New)")
+		self.assertEqual(self.grn["old_new_bags"]["label"], "Bag Condition (Old / New)")
+		self.assertNotIn("old_bags", self.grn)
+
+
+class TestRstTotal(unittest.TestCase):
+	def _rst(self, **bags):
+		from ivri_od.procurement.doctype.rst_details.rst_details import RSTDetails
+
+		doc = SimpleNamespace(**bags)
+		doc.get = lambda k: getattr(doc, k, 0)
+		with patch("frappe.msgprint") as msgprint:
+			RSTDetails._set_total_bags(doc)
+		return doc.total_bags, msgprint.called
+
+	def test_total_is_jute_plus_plastic(self):
+		self.assertEqual(self._rst(jute_bags=200, plastic_bags=100, old_bags=250, new_bags=50), (300, False))
+
+	def test_warns_when_old_plus_new_differs(self):
+		self.assertEqual(self._rst(jute_bags=200, plastic_bags=100, old_bags=10, new_bags=0), (300, True))
+
+	def test_no_warning_when_old_and_new_are_empty(self):
+		self.assertEqual(self._rst(jute_bags=200, plastic_bags=0, old_bags=0, new_bags=0), (200, False))
 
 
 if __name__ == "__main__":

@@ -246,6 +246,7 @@ function wbm_qc_sync_args(frm) {
 		is_farmer_or_agent: frm.doc.is_farmer_or_agent ? 1 : 0,
 		vehicle_no: frm.doc.vehicle_no || "",
 		same_truck_as_transit_pass: frm.doc.same_truck_as_transit_pass ? 1 : 0,
+		rst: frm.doc.demo_rst_data || "",
 	};
 }
 
@@ -504,15 +505,37 @@ function apply_bag_details_table(frm, rows) {
 	recalculate_weights(frm);
 }
 
+// Bag Condition (Old / New): same source as Bag Type. Returns true when the rows were changed.
+function apply_bag_condition_table(frm, rows) {
+	if (!rows?.length) {
+		return false;
+	}
+	const existing = frm.doc.old_new_bags || [];
+	const same =
+		existing.length === rows.length &&
+		rows.every(
+			(row, i) =>
+				cint(existing[i].old_bags) === cint(row.old_bags) &&
+				cint(existing[i].new_bags) === cint(row.new_bags)
+		);
+	if (same) {
+		return false;
+	}
+	frm.clear_table("old_new_bags");
+	rows.forEach((row) => {
+		const child = frm.add_child("old_new_bags");
+		child.old_bags = cint(row.old_bags);
+		child.new_bags = cint(row.new_bags);
+	});
+	frm.refresh_field("old_new_bags");
+	return true;
+}
+
 function bag_table_needs_qc_sync(frm, qc, bag_details) {
 	const rows = frm.doc.bag_weight_details || [];
-	// The table mirrors the linked QC. With no QC, or a QC without bag lines, it must be empty:
-	// rows left over from a QC this weighment no longer has are removed.
-	if (!qc || !bag_details?.length) {
-		return rows.length > 0;
-	}
-	if (!rows.length) {
-		return true;
+	// Server decides the Bag Type rows: accepted QC lines, else RST bags, else one row of 0.
+	if (!bag_details?.length) {
+		return false;
 	}
 	if (rows.length !== bag_details.length) {
 		return true;
@@ -593,7 +616,8 @@ function sync_quality_from_qc(frm) {
 				frm.set_value("gate_entry", gate_entry);
 			}
 
-			if (should_refresh_bags_from_qc(frm, data)) {
+			const condition_changed = apply_bag_condition_table(frm, data.bag_condition);
+			if (should_refresh_bags_from_qc(frm, data) || condition_changed) {
 				apply_bag_details_table(frm, bag_details);
 				frm._wbm_qc_bag_modified = data.qc_modified || "";
 				persist_wbm_bag_details_from_qc(frm);

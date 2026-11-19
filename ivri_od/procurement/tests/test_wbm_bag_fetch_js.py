@@ -1,6 +1,7 @@
 # Copyright (c) 2026, Profezzo and Contributors
 # See license.txt
-"""The Weigh Bridge form decides when to rebuild its Bag Details from the Quality Check.
+"""The Weigh Bridge form decides when to rebuild its Bag Details from the rows the server sends
+for Bag Type (accepted QC lines, else RST bags, else one row of 0).
 
 The two decision functions are taken from weigh_bridge_measurement.js as they are and run in Node, with a
 stub for the form. The tests are skipped when Node is not installed. No site, no database.
@@ -73,17 +74,20 @@ class TestFormBagRefreshDecision(unittest.TestCase):
 	def test_a_table_that_already_matches_is_left_alone(self):
 		self.assertFalse(self.refresh([row(120, 48)], "QC-1", [row(120, 48)], marker="t1", modified="t1"))
 
-	def test_the_table_is_emptied_when_the_weighment_has_no_qc_any_more(self):
-		self.assertTrue(self.refresh([row(150, 0)], "", []))
+	def test_stale_qc_rows_become_the_rst_row_when_the_qc_is_gone(self):
+		self.assertTrue(self.refresh([row(150, 0)], "", [row(100, 20)]))
 
-	def test_the_table_is_emptied_when_the_qc_has_no_bag_lines(self):
-		self.assertTrue(self.refresh([row(150, 0)], "QC-LEGACY", []))
+	def test_stale_rows_become_the_zero_row(self):
+		self.assertTrue(self.refresh([row(150, 0)], "", [row()]))
 
-	def test_an_empty_table_with_no_qc_needs_nothing(self):
-		self.assertFalse(self.refresh([], "", []))
+	def test_an_empty_table_gets_the_zero_row(self):
+		self.assertTrue(self.refresh([], "", [row()]))
 
-	def test_an_empty_table_with_a_qc_without_lines_needs_nothing(self):
-		self.assertFalse(self.refresh([], "QC-LEGACY", []))
+	def test_a_zero_row_that_is_already_there_is_left_alone(self):
+		self.assertFalse(self.refresh([row()], "", [row()]))
+
+	def test_no_rows_from_the_server_changes_nothing(self):
+		self.assertFalse(self.refresh([row(5, 0)], "", []))
 
 
 if __name__ == "__main__":

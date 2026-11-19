@@ -213,6 +213,104 @@ def build_bag_details_from_qc(
 	return out
 
 
+QC_ACCEPTED_DECISIONS = ("Accepted", "Partially Accepted")
+TYPE_KEYS = ("jute_bags", "plastic_bags")
+CONDITION_KEYS = ("old_bags", "new_bags")
+
+
+def _bag_row(jute: int = 0, plastic: int = 0) -> dict:
+	"""One Bag Type row (Jute / Plastic)."""
+	jute, plastic = cint(jute), cint(plastic)
+	return {"jute_bags": jute, "plastic_bags": plastic, "total_bags": jute + plastic, "gunny_weight_qt": 0}
+
+
+def _condition_row(old: int = 0, new: int = 0) -> dict:
+	"""One Bag Condition row (Old / New)."""
+	return {"old_bags": cint(old), "new_bags": cint(new)}
+
+
+def is_quality_check_accepted(qc_name: str) -> bool:
+	qc_name = (qc_name or "").strip()
+	if not qc_name:
+		return False
+	return (frappe.db.get_value("Quality Check", qc_name, "qc_decision") or "").strip() in QC_ACCEPTED_DECISIONS
+
+
+def _rst_bag_values(rst_name: str, keys: tuple[str, ...]) -> dict | None:
+	"""The RST's values for these bag fields, or None when the RST has none of them filled."""
+	rst_name = (rst_name or "").strip()
+	if not rst_name or not frappe.db.exists("RST Details", rst_name):
+		return None
+	fields = [f for f in keys if frappe.db.has_column("RST Details", f)]
+	if not fields:
+		return None
+	rst = frappe.db.get_value("RST Details", rst_name, fields, as_dict=True)
+	if not rst or not any(cint(rst.get(f)) for f in fields):
+		return None
+	return rst
+
+
+def _qc_condition_lines(qc_name: str) -> list[dict]:
+	return [
+		_condition_row(r.old_bags, r.new_bags)
+		for r in frappe.get_all(
+			"Quality Check Old New Bag Detail",
+			filters={"parent": qc_name, "parenttype": "Quality Check", "parentfield": "old_new_bags"},
+			fields=["old_bags", "new_bags"],
+			order_by="idx asc",
+		)
+		if cint(r.old_bags) or cint(r.new_bags)
+	]
+
+
+def build_wbm_bag_rows(qc_name: str = "", rst_name: str = "") -> list[dict]:
+	"""Bag Type of a weighment (Jute / Plastic), always at least one row.
+
+	1. Quality Check accepted (Accepted / Partially Accepted) with bag lines: one row per QC line.
+	2. Otherwise the RST Jute / Plastic bags, when the RST has any.
+	3. Otherwise one row with 0.
+	"""
+	if is_quality_check_accepted(qc_name):
+		rows = [_bag_row(r["jute_bags"], r["plastic_bags"]) for r in build_bag_details_from_qc(qc_name)]
+		if rows:
+			return rows
+	rst = _rst_bag_values(rst_name, TYPE_KEYS)
+	if rst:
+		return [_bag_row(rst.get("jute_bags"), rst.get("plastic_bags"))]
+	return [_bag_row()]
+
+
+def build_wbm_condition_rows(qc_name: str = "", rst_name: str = "") -> list[dict]:
+	"""Bag Condition of a weighment (Old / New), same order as Bag Type: accepted QC, else RST, else one row of 0."""
+	if is_quality_check_accepted(qc_name):
+		rows = _qc_condition_lines(qc_name)
+		if rows:
+			return rows
+	rst = _rst_bag_values(rst_name, CONDITION_KEYS)
+	if rst:
+		return [_condition_row(rst.get("old_bags"), rst.get("new_bags"))]
+	return [_condition_row()]
+
+
+def _rows_match(existing, expected, keys) -> bool:
+	if len(existing) != len(expected):
+		return False
+	return all(cint(_row_get(a, k)) == cint(_row_get(b, k)) for a, b in zip(existing, expected) for k in keys)
+
+
+def _bag_rows_match(existing, expected) -> bool:
+	# Total too: a row saved with another formula must be rewritten.
+	return _rows_match(existing, expected, (*TYPE_KEYS, "total_bags"))
+
+
+def _condition_rows_match(existing, expected) -> bool:
+	return _rows_match(existing, expected, CONDITION_KEYS)
+
+
+def _row_get(row, key):
+	return row.get(key) if isinstance(row, dict) else getattr(row, key, None)
+
+
 def is_farmer_or_agent_source(doc) -> bool:
 	return bool(cint(doc.get("is_farmer_or_agent")))
 
@@ -584,23 +682,19 @@ class WeighBridgeMeasurement(Document):
 				self.no_of_bags = tp.bags
 
 	def _sync_bag_details_from_qc(self):
-		"""Bag Details always mirror the linked Quality Check: its packet lines, or no rows when there is no
-		Quality Check or it has no bag lines. Never the lines of a Quality Check the weighment no longer has.
-		Only the entered per-bag weights are kept (by row)."""
-		qc_name = (self.quality_check or "").strip()
-		rows = build_bag_details_from_qc(qc_name, _saved_bag_weights(self.bag_weight_details)) if qc_name else []
-
-		self.bag_weight_details = []
-		for row_data in rows:
-			row = self.append("bag_weight_details", {})
-			row.jute_bags = row_data["jute_bags"]
-			row.plastic_bags = row_data["plastic_bags"]
-			row.total_bags = row_data["total_bags"]
-			row.weight_per_jute_kg = row_data["weight_per_jute_kg"]
-			row.weight_per_plastic_kg = row_data["weight_per_plastic_kg"]
-			row.jute_total_qt = row_data["jute_total_qt"]
-			row.plastic_total_qt = row_data["plastic_total_qt"]
-			row.gunny_weight_qt = row_data["gunny_weight_qt"]
+		"""Bag Type and Bag Condition tables: accepted Quality Check, else RST bags, else one row of 0.
+		Never the lines of a Quality Check the weighment no longer has."""
+		qc_name, rst_name = self.quality_check, self.get("demo_rst_data")
+		rows = build_wbm_bag_rows(qc_name, rst_name)
+		if not _bag_rows_match(self.bag_weight_details or [], rows):
+			self.bag_weight_details = []
+			for row_data in rows:
+				self.append("bag_weight_details", row_data)
+		condition = build_wbm_condition_rows(qc_name, rst_name)
+		if not _condition_rows_match(self.get("old_new_bags") or [], condition):
+			self.old_new_bags = []
+			for row_data in condition:
+				self.append("old_new_bags", row_data)
 		self._sync_total_bags_from_qc_table()
 
 	def _persist_bag_details_from_qc(self):
@@ -994,6 +1088,34 @@ def get_quality_check_for_wbm(
 	is_farmer_or_agent=None,
 	vehicle_no=None,
 	same_truck_as_transit_pass=None,
+	rst=None,
+):
+	"""Quality Check of the weighment, with Bag Type and Bag Condition rows (QC accepted, else RST, else 0)."""
+	data = _lookup_quality_check_for_wbm(
+		actual_truck_no=actual_truck_no,
+		truck_no_in_tp=truck_no_in_tp,
+		wbm_name=wbm_name,
+		quality_check=quality_check,
+		is_farmer_or_agent=is_farmer_or_agent,
+		vehicle_no=vehicle_no,
+		same_truck_as_transit_pass=same_truck_as_transit_pass,
+	)
+	rst = (rst or "").strip()
+	if not rst and wbm_name and frappe.db.exists("Weigh Bridge Measurement", wbm_name):
+		rst = (frappe.db.get_value("Weigh Bridge Measurement", wbm_name, "demo_rst_data") or "").strip()
+	data["bag_details"] = build_wbm_bag_rows(data.get("quality_check"), rst)
+	data["bag_condition"] = build_wbm_condition_rows(data.get("quality_check"), rst)
+	return data
+
+
+def _lookup_quality_check_for_wbm(
+	actual_truck_no=None,
+	truck_no_in_tp=None,
+	wbm_name=None,
+	quality_check=None,
+	is_farmer_or_agent=None,
+	vehicle_no=None,
+	same_truck_as_transit_pass=None,
 ):
 	lookup_doc = {
 		"actual_truck_no": actual_truck_no,
@@ -1192,8 +1314,8 @@ def sync_weigh_bridge_quality_for_vehicle(
 		if gate_entry:
 			values["gate_entry"] = gate_entry
 		frappe.db.set_value("Weigh Bridge Measurement", name, values, update_modified=True)
-		if quality_check:
-			_ensure_wbm_bag_details_from_qc(name)
+		# QC accepted or not decides the Bag Details rows (QC lines, else RST bags, else 0).
+		_ensure_wbm_bag_details_from_qc(name, {"quality_check": quality_check or ""})
 		persist_wbm_quality_and_net_after_qc_sync(name)
 		_ensure_grn_note_for_weigh_bridge(name)
 
@@ -1589,24 +1711,27 @@ def _ensure_wbm_bag_details_from_qc(name: str, data: dict | None = None):
 		)
 
 	qc_name = (data.get("quality_check") or "").strip()
-	bag_details = data.get("bag_details") or []
 	if not qc_name and (frappe.db.get_value("Weigh Bridge Measurement", name, "quality_check") or "").strip():
 		return  # still linked to a Quality Check: that link decides the rows, not this lookup
 
+	# The saved WBM decides the rows (its QC link and RST), the same way its own save does.
+	saved = frappe.db.get_value("Weigh Bridge Measurement", name, ["quality_check", "demo_rst_data"], as_dict=True)
 	existing = frappe.get_all(
 		"Weigh Bridge Bag Detail",
 		filters={"parent": name, "parenttype": "Weigh Bridge Measurement", "parentfield": "bag_weight_details"},
-		fields=["jute_bags", "plastic_bags"],
+		fields=["jute_bags", "plastic_bags", "total_bags"],
 		order_by="idx asc",
 	)
-	if len(existing) == len(bag_details):
-		in_sync = all(
-			cint(existing[i].jute_bags) == cint(bag_details[i].get("jute_bags"))
-			and cint(existing[i].plastic_bags) == cint(bag_details[i].get("plastic_bags"))
-			for i in range(len(bag_details))
-		)
-		if in_sync:
-			return
+	existing_condition = frappe.get_all(
+		"Quality Check Old New Bag Detail",
+		filters={"parent": name, "parenttype": "Weigh Bridge Measurement", "parentfield": "old_new_bags"},
+		fields=["old_bags", "new_bags"],
+		order_by="idx asc",
+	)
+	if _bag_rows_match(existing, build_wbm_bag_rows(saved.quality_check, saved.demo_rst_data)) and (
+		_condition_rows_match(existing_condition, build_wbm_condition_rows(saved.quality_check, saved.demo_rst_data))
+	):
+		return
 
 	try:
 		doc = frappe.get_doc("Weigh Bridge Measurement", name)

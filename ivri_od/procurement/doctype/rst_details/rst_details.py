@@ -118,8 +118,21 @@ class RSTDetails(Document):
 		self._set_season_code_and_rst_unique_key(details)
 
 	def _set_total_bags(self):
-		"""Total Bags = Jute Bags + Plastic Bags + Old Bags."""
-		self.total_bags = sum(cint(self.get(name)) for name in ("jute_bags", "plastic_bags", "old_bags"))
+		"""Total Bags = Jute Bags + Plastic Bags (Bag Type).
+
+		Old Bags + New Bags (Bag Condition) split the same bags another way, so they are not added. When they are
+		filled and do not add up to the total, the user is warned (the RST still saves)."""
+		self.total_bags = cint(self.get("jute_bags")) + cint(self.get("plastic_bags"))
+		condition = cint(self.get("old_bags")) + cint(self.get("new_bags"))
+		if condition and self.total_bags and condition != self.total_bags:
+			frappe.msgprint(
+				_("Old Bags + New Bags ({0}) is not equal to Jute Bags + Plastic Bags ({1}). Please check.").format(
+					condition, self.total_bags
+				),
+				title=_("Bag Count Mismatch"),
+				indicator="orange",
+				alert=True,
+			)
 
 	def _set_chhatni(self):
 		"""Hidden, for future RST-based Chhatni entry; same formulas as the Chhatni DocType.

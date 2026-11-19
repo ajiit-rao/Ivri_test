@@ -650,6 +650,13 @@ class GRNNote(Document):
 		self.jute_bags = jute
 		self.plastic_bags = plastic
 		self.total_bags = total
+		self._apply_wbm_bag_condition(wbm_name)
+
+	def _apply_wbm_bag_condition(self, wbm_name: str):
+		"""Bag Condition (Old / New) comes from the weighment (it already chose QC or RST)."""
+		self.old_new_bags = []
+		for row in _wbm_bag_condition_rows(wbm_name):
+			self.append("old_new_bags", {"old_bags": cint(row.old_bags), "new_bags": cint(row.new_bags)})
 
 	def _apply_quality_check(self, qc_name: str):
 		if not frappe.db.exists("Quality Check", qc_name):
@@ -724,10 +731,18 @@ class GRNNote(Document):
 		):
 			self.set(fieldname, "")
 		self.qc_datetime = None
-		self.old_new_bags = []
 		self.qc_bag_details = []
+		wbm_name = (self.weigh_bridge_measurement or "").strip()
+		if wbm_name:
+			self._apply_wbm_bag_condition(wbm_name)  # RST values or 0 when there is no QC
+		else:
+			self.old_new_bags = []
 
 	def _apply_qc_old_new_bags(self, qc_name: str):
+		wbm_name = (self.weigh_bridge_measurement or "").strip()
+		if wbm_name:
+			self._apply_wbm_bag_condition(wbm_name)
+			return
 		self.old_new_bags = []
 		for row in _qc_old_new_bag_rows(qc_name):
 			child = self.append("old_new_bags", {})
@@ -1383,7 +1398,20 @@ def _grn_details_from_rst(
 	}
 
 
+def _wbm_bag_condition_rows(wbm_name: str) -> list:
+	wbm_name = (wbm_name or "").strip()
+	if not wbm_name:
+		return []
+	return frappe.get_all(
+		"Quality Check Old New Bag Detail",
+		filters={"parent": wbm_name, "parenttype": "Weigh Bridge Measurement", "parentfield": "old_new_bags"},
+		fields=["old_bags", "new_bags"],
+		order_by="idx asc",
+	)
+
+
 def _wbm_bag_counts_from_child_table(wbm_name: str) -> tuple[int, int, int]:
+	"""Jute, Plastic and Total bags of the weighment's Bag Type table."""
 	wbm_name = (wbm_name or "").strip()
 	if not wbm_name or not frappe.db.exists("Weigh Bridge Measurement", wbm_name):
 		return 0, 0, 0
@@ -1400,9 +1428,7 @@ def _wbm_bag_counts_from_child_table(wbm_name: str) -> tuple[int, int, int]:
 	)
 	jute = sum(cint(row.jute_bags) for row in rows)
 	plastic = sum(cint(row.plastic_bags) for row in rows)
-	wbm_total = frappe.db.get_value("Weigh Bridge Measurement", wbm_name, "total_bags")
-	total = cint(wbm_total) if wbm_total is not None else jute + plastic
-	return jute, plastic, total
+	return jute, plastic, jute + plastic
 
 
 @frappe.whitelist()

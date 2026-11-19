@@ -645,13 +645,13 @@
   {
    "fieldname": "paddy_bags_section",
    "fieldtype": "Section Break",
-   "label": "Paddy Type (In Bags)",
+   "label": "Bag Condition (Old / New)",
    "depends_on": "eval:!doc.is_local_procurement && !doc.is_rice_dispatch"
   },
   {
    "fieldname": "old_new_bags",
    "fieldtype": "Table",
-   "label": "Paddy Type (In Bags)",
+   "label": "Bag Condition (Old / New)",
    "options": "Quality Check Old New Bag Detail",
    "read_only": 1
   },

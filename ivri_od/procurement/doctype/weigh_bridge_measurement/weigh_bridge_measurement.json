@@ -57,7 +57,9 @@
   "split_from_weighment",
   "split_qty",
   "section_break_rnxd",
-  "bag_weight_details"
+  "bag_weight_details",
+  "bag_condition_section",
+  "old_new_bags"
  ],
  "fields": [
   {
@@ -455,8 +457,21 @@
   {
    "fieldname": "bag_weight_details",
    "fieldtype": "Table",
-   "label": "Bag Details (from QC)",
+   "label": "Bag Type",
    "options": "Weigh Bridge Bag Detail",
+   "read_only": 1
+  },
+  {
+   "fieldname": "bag_condition_section",
+   "fieldtype": "Section Break",
+   "label": "Bag Condition (Old / New)"
+  },
+  {
+   "cannot_add_rows": 1,
+   "fieldname": "old_new_bags",
+   "fieldtype": "Table",
+   "label": "Bag Condition (Old / New)",
+   "options": "Quality Check Old New Bag Detail",
    "read_only": 1
   },
   {
@@ -495,7 +510,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-19 11:00:00.000000",
+ "modified": "2026-11-18 19:30:00.000000",
  "modified_by": "Administrator",
  "module": "Procurement",
  "name": "Weigh Bridge Measurement",
