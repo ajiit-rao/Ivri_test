@@ -110,7 +110,7 @@ def health():
         #     must be the Mill No. picked, else nothing is read; login_user sent with every result.
         # 26: "read_all_pages" in known_rows: no stop at the first known row (DCRO DC Transit Challan
         #     sends rows with an AC Note as known and skips them; rows without one are read in full).
-        "portal_version": 26
+        "portal_version": 27
     })
 
 
