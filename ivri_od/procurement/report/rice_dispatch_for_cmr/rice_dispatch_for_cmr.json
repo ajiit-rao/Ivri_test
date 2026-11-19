@@ -1,18 +1,18 @@
 {
- "add_total_row": 1,
+ "add_total_row": 0,
  "creation": "2026-10-23 16:30:00.000000",
  "disabled": 0,
  "docstatus": 0,
  "doctype": "Report",
  "is_standard": "Yes",
- "modified": "2026-10-23 16:30:00.000000",
+ "modified": "2026-11-19 13:00:00.000000",
  "modified_by": "Administrator",
  "module": "Procurement",
- "name": "Rice Dispatch",
+ "name": "Rice Dispatch for CMR",
  "owner": "Administrator",
  "prepared_report": 0,
  "ref_doctype": "Weigh Bridge Measurement",
- "report_name": "Rice Dispatch",
+ "report_name": "Rice Dispatch for CMR",
  "report_type": "Script Report",
  "roles": [
   {

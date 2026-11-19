@@ -60,6 +60,8 @@ DCRO_REPORTS: list[tuple[str, str, str]] = [
 # One line per DC: lots to deliver (View DC) against lots delivered (DC Transit Challan,
 # SCMS Lot Search). Built from DCRO and SCMS together, so it sits on the Procurement page.
 DC_TRACK_REPORT = "DC Track"
+PRIVATE_DEAL_REPORT = "Private Deal Report"
+RICE_DISPATCH_CMR_REPORT = "Rice Dispatch for CMR"
 
 # Monthly paddy statement (OB, receipts, milling, driage, CB) submitted to Civil Supplies.
 PADDY_STOCK_REPORT = "Stock Account for Paddy"
@@ -179,6 +181,13 @@ WORKSPACE_SHORTCUTS = [
 	{"label": "Gate Exit", "type": "DocType", "link_to": "Gate Exit", "icon": "log-out", "color": "Blue"},
 	{"label": "GRN Note", "type": "DocType", "link_to": "GRN Note", "icon": "file-check", "color": "Orange"},
 	{"label": "Mandi Book", "type": "Report", "link_to": "Mandi Book", "icon": "book-open", "color": "Purple"},
+	{
+		"label": PRIVATE_DEAL_REPORT,
+		"type": "Report",
+		"link_to": PRIVATE_DEAL_REPORT,
+		"icon": "handshake",
+		"color": "Orange",
+	},
 	{"label": DC_TRACK_REPORT, "type": "Report", "link_to": DC_TRACK_REPORT, "icon": "check-square", "color": "Purple"},
 	{"label": DC_DETAILS_REPORT, "type": "Report", "link_to": DC_DETAILS_REPORT, "icon": "layout-grid", "color": "Green"},
 	{
@@ -364,7 +373,8 @@ WORKSPACE_CARDS: list[tuple[str, list[tuple[str, str]]]] = [
 			("Abstract Report", "Report"),
 			("Abstract Physical", "Report"),
 			("TP Mandi Quantity Fulfillment", "Report"),
-			("Rice Dispatch", "Report"),
+			(RICE_DISPATCH_CMR_REPORT, "Report"),
+			(PRIVATE_DEAL_REPORT, "Report"),
 		],
 	),
 ]
@@ -387,8 +397,9 @@ QUERY_REPORTS = {
 	"Abstract Report",
 	"Abstract Physical",
 	"TP Mandi Quantity Fulfillment",
-	"Rice Dispatch",
+	RICE_DISPATCH_CMR_REPORT,
 	"Mandi Book",
+	PRIVATE_DEAL_REPORT,
 	PADDY_STOCK_REPORT,
 	GUNNY_ACCOUNT_REPORT,
 	RICE_STOCK_REPORT,

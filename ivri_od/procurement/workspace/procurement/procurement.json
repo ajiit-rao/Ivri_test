@@ -1,7 +1,7 @@
 {
  "app": "ivri_od",
  "charts": [],
- "content": "[{\"id\": \"eb703f9303\", \"type\": \"custom_block\", \"data\": {\"custom_block_name\": \"Procurement Header\", \"col\": 12}}, {\"id\": \"8bbb06f26a\", \"type\": \"header\", \"data\": {\"text\": \"<span style=\\\"font-size: 16px; font-weight: 600; color: var(--heading-color, var(--text-color));\\\">Quick shortcuts</span>\", \"col\": 12}}, {\"id\": \"3c8fd8e7f2\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Transit Pass\", \"col\": 3}}, {\"id\": \"c49976edc1\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Gate Entry\", \"col\": 3}}, {\"id\": \"bd38472e57\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Quality Check\", \"col\": 3}}, {\"id\": \"7902b1210a\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"RST Details\", \"col\": 3}}, {\"id\": \"69ad5ff971\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Weigh Bridge\", \"col\": 3}}, {\"id\": \"17a723c53f\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Gate Exit\", \"col\": 3}}, {\"id\": \"c54a59aa2a\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"GRN Note\", \"col\": 3}}, {\"id\": \"5021d47af6\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Mandi Book\", \"col\": 3}}, {\"id\": \"296db82c04\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"DC Track\", \"col\": 3}}, {\"id\": \"b5088db2d2\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"DC Details\", \"col\": 3}}, {\"id\": \"72986fbf3c\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"PVR\", \"col\": 3}}, {\"id\": \"70299b13d3\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Module Overview\", \"col\": 3}}, {\"id\": \"cab2f4a86a\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"61c3b5c95b\", \"type\": \"header\", \"data\": {\"text\": \"<span style=\\\"font-size: 16px; font-weight: 600; color: var(--heading-color, var(--text-color));\\\">All modules</span>\", \"col\": 12}}, {\"id\": \"5b5b1570fc\", \"type\": \"card\", \"data\": {\"card_name\": \"Masters\", \"col\": 3}}, {\"id\": \"1a516d99f4\", \"type\": \"card\", \"data\": {\"card_name\": \"Season & targets\", \"col\": 3}}, {\"id\": \"fe13a882a9\", \"type\": \"card\", \"data\": {\"card_name\": \"Govt portals\", \"col\": 3}}, {\"id\": \"3fa2fd9920\", \"type\": \"custom_block\", \"data\": {\"custom_block_name\": \"Government Portals Reports\", \"col\": 3}}, {\"id\": \"d85cf1e09b\", \"type\": \"card\", \"data\": {\"card_name\": \"Gate & weighing\", \"col\": 3}}, {\"id\": \"10e01efc6e\", \"type\": \"card\", \"data\": {\"card_name\": \"Receipt & GRN\", \"col\": 3}}, {\"id\": \"7172d6e525\", \"type\": \"card\", \"data\": {\"card_name\": \"CMR\", \"col\": 3}}, {\"id\": \"7ace4e86b4\", \"type\": \"card\", \"data\": {\"card_name\": \"CMR Billing\", \"col\": 3}}, {\"id\": \"a1a78cd53d\", \"type\": \"card\", \"data\": {\"card_name\": \"Reports\", \"col\": 3}}, {\"id\": \"11ce23706c\", \"type\": \"card\", \"data\": {\"card_name\": \"Registers\", \"col\": 3}}]",
+ "content": "[{\"id\": \"c19ac28fb1\", \"type\": \"custom_block\", \"data\": {\"custom_block_name\": \"Procurement Header\", \"col\": 12}}, {\"id\": \"e03f0bcc45\", \"type\": \"header\", \"data\": {\"text\": \"<span style=\\\"font-size: 16px; font-weight: 600; color: var(--heading-color, var(--text-color));\\\">Quick shortcuts</span>\", \"col\": 12}}, {\"id\": \"71dffa4fdb\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Transit Pass\", \"col\": 3}}, {\"id\": \"b9e1f85f9d\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Gate Entry\", \"col\": 3}}, {\"id\": \"caa57b1d32\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Quality Check\", \"col\": 3}}, {\"id\": \"e0166c59e3\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"RST Details\", \"col\": 3}}, {\"id\": \"c7e51606c2\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Weigh Bridge\", \"col\": 3}}, {\"id\": \"ce8e8787d0\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Gate Exit\", \"col\": 3}}, {\"id\": \"b865ab58fa\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"GRN Note\", \"col\": 3}}, {\"id\": \"5071e57440\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Mandi Book\", \"col\": 3}}, {\"id\": \"39f2f2bca7\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Private Deal Report\", \"col\": 3}}, {\"id\": \"eee97133af\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"DC Track\", \"col\": 3}}, {\"id\": \"442432ceee\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"DC Details\", \"col\": 3}}, {\"id\": \"d7b8b65890\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"PVR\", \"col\": 3}}, {\"id\": \"6f386372ed\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Module Overview\", \"col\": 3}}, {\"id\": \"f13defc902\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"aec0638485\", \"type\": \"header\", \"data\": {\"text\": \"<span style=\\\"font-size: 16px; font-weight: 600; color: var(--heading-color, var(--text-color));\\\">All modules</span>\", \"col\": 12}}, {\"id\": \"09f8db9536\", \"type\": \"card\", \"data\": {\"card_name\": \"Masters\", \"col\": 3}}, {\"id\": \"140d72a661\", \"type\": \"card\", \"data\": {\"card_name\": \"Season & targets\", \"col\": 3}}, {\"id\": \"799641688a\", \"type\": \"card\", \"data\": {\"card_name\": \"Govt portals\", \"col\": 3}}, {\"id\": \"fca22c8623\", \"type\": \"custom_block\", \"data\": {\"custom_block_name\": \"Government Portals Reports\", \"col\": 3}}, {\"id\": \"815bdf9df5\", \"type\": \"card\", \"data\": {\"card_name\": \"Gate & weighing\", \"col\": 3}}, {\"id\": \"c73514e953\", \"type\": \"card\", \"data\": {\"card_name\": \"Receipt & GRN\", \"col\": 3}}, {\"id\": \"759badd5ff\", \"type\": \"card\", \"data\": {\"card_name\": \"CMR\", \"col\": 3}}, {\"id\": \"41f59df565\", \"type\": \"card\", \"data\": {\"card_name\": \"Registers\", \"col\": 3}}, {\"id\": \"30d4382b4b\", \"type\": \"card\", \"data\": {\"card_name\": \"CMR Billing\", \"col\": 3}}, {\"id\": \"f298b412a1\", \"type\": \"card\", \"data\": {\"card_name\": \"Reports\", \"col\": 3}}]",
  "creation": "2026-10-01 12:04:12.928182",
  "custom_blocks": [
   {
@@ -27,7 +27,7 @@
    "hidden": 0,
    "is_query_report": 0,
    "label": "Masters",
-   "link_count": 9,
+   "link_count": 10,
    "link_type": "DocType",
    "onboard": 0,
    "type": "Card Break"
@@ -48,6 +48,16 @@
    "label": "PPC Master",
    "link_count": 0,
    "link_to": "PPC Master",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
+   "label": "Own Vehicle",
+   "link_count": 0,
+   "link_to": "Own Vehicle",
    "link_type": "DocType",
    "onboard": 0,
    "type": "Link"
@@ -400,7 +410,7 @@
    "hidden": 0,
    "is_query_report": 0,
    "label": "CMR Billing",
-   "link_count": 5,
+   "link_count": 6,
    "link_type": "DocType",
    "onboard": 0,
    "type": "Card Break"
@@ -458,8 +468,18 @@
   {
    "hidden": 0,
    "is_query_report": 0,
+   "label": "Vehicle Wise Statement",
+   "link_count": 0,
+   "link_to": "Vehicle Wise Statement",
+   "link_type": "DocType",
+   "onboard": 0,
+   "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 0,
    "label": "Reports",
-   "link_count": 5,
+   "link_count": 6,
    "link_type": "DocType",
    "onboard": 0,
    "type": "Card Break"
@@ -513,9 +533,19 @@
    "link_type": "Report",
    "onboard": 0,
    "type": "Link"
+  },
+  {
+   "hidden": 0,
+   "is_query_report": 1,
+   "label": "Private Deal Report",
+   "link_count": 0,
+   "link_to": "Private Deal Report",
+   "link_type": "Report",
+   "onboard": 0,
+   "type": "Link"
   }
  ],
- "modified": "2026-11-05 21:00:00.000000",
+ "modified": "2026-11-19 16:00:45.849381",
  "modified_by": "Administrator",
  "module": "Procurement",
  "name": "Procurement",
@@ -595,6 +625,16 @@
    "icon": "book-open",
    "label": "Mandi Book",
    "link_to": "Mandi Book",
+   "report_ref_doctype": "GRN Note",
+   "type": "Report",
+   "url": ""
+  },
+  {
+   "color": "Orange",
+   "doc_view": "List",
+   "icon": "handshake",
+   "label": "Private Deal Report",
+   "link_to": "Private Deal Report",
    "report_ref_doctype": "GRN Note",
    "type": "Report",
    "url": ""
