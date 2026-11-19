@@ -38,7 +38,13 @@
   "chhatni_kg_per_qtl",
   "chhatni_kg",
   "chhatni_qt",
-  "received_chhatni_pct"
+  "received_chhatni_pct",
+  "section_break_bags",
+  "jute_bags",
+  "plastic_bags",
+  "column_break_bags",
+  "old_bags",
+  "total_bags"
  ],
  "fields": [
   {
@@ -275,11 +281,48 @@
    "in_list_view": 1,
    "description": "Depo RST (Rice Dispatch) only: copy of TP No, which holds the Lot No. Shown as a list column.",
    "in_standard_filter": 1
+  },
+  {
+   "fieldname": "section_break_bags",
+   "fieldtype": "Section Break",
+   "label": "Bags"
+  },
+  {
+   "fieldname": "jute_bags",
+   "fieldtype": "Int",
+   "label": "Jute Bags",
+   "non_negative": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "plastic_bags",
+   "fieldtype": "Int",
+   "label": "Plastic Bags",
+   "non_negative": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "column_break_bags",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "old_bags",
+   "fieldtype": "Int",
+   "label": "Old Bags",
+   "non_negative": 1,
+   "default": "0"
+  },
+  {
+   "fieldname": "total_bags",
+   "fieldtype": "Int",
+   "label": "Total Bags",
+   "read_only": 1,
+   "description": "Jute Bags + Plastic Bags + Old Bags."
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-19 12:00:00.000000",
+ "modified": "2026-11-19 13:00:00.000000",
  "modified_by": "Administrator",
  "module": "Procurement",
  "name": "RST Details",

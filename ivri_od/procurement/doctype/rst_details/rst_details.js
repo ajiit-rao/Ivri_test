@@ -253,4 +253,22 @@ frappe.ui.form.on("RST Details", {
 	tp_quantity(frm) {
 		calculate_rst_chhatni(frm);
 	},
+	jute_bags(frm) {
+		calculate_total_bags(frm);
+	},
+	plastic_bags(frm) {
+		calculate_total_bags(frm);
+	},
+	old_bags(frm) {
+		calculate_total_bags(frm);
+	},
 });
+
+// Total Bags = Jute Bags + Plastic Bags + Old Bags (the server saves the same total).
+function calculate_total_bags(frm) {
+	const total = ["jute_bags", "plastic_bags", "old_bags"].reduce(
+		(sum, fieldname) => sum + cint(frm.doc[fieldname]),
+		0
+	);
+	frm.set_value("total_bags", total);
+}
