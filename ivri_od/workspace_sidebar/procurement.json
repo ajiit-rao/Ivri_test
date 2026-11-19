@@ -658,9 +658,21 @@
    "icon": "package",
    "indent": 1,
    "keep_closed": 1,
-   "label": "Rice Dispatch",
+   "label": "Rice Dispatch for CMR",
    "link_type": "URL",
-   "url": "/app/query-report/Rice%20Dispatch",
+   "url": "/app/query-report/Rice%20Dispatch%20for%20CMR",
+   "show_arrow": 0,
+   "type": "Link"
+  },
+  {
+   "child": 1,
+   "collapsible": 1,
+   "icon": "handshake",
+   "indent": 1,
+   "keep_closed": 1,
+   "label": "Private Deal Report",
+   "link_type": "URL",
+   "url": "/app/query-report/Private%20Deal%20Report",
    "show_arrow": 0,
    "type": "Link"
   },
@@ -735,7 +747,7 @@
    "type": "Link"
   }
  ],
- "modified": "2026-11-05 21:00:00.000000",
+ "modified": "2026-11-19 12:00:00.000000",
  "modified_by": "Administrator",
  "module": "Procurement",
  "name": "Procurement",
