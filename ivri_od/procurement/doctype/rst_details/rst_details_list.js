@@ -59,7 +59,11 @@ frappe.listview_settings["RST Details"] = {
 
 // Every filter above the list is a dropdown that lists the values already saved, so staff pick
 // instead of typing. Values are read once when the list opens.
-const DROPDOWN_FILTERS = ["rst_no", "vehicle_no", "tp_no", "party_name", "season_code"];
+const DROPDOWN_FILTERS = ["rst_no", "vehicle_no", "tp_no", "lot_no", "party_name", "place", "commodity"];
+
+// Order of the filter boxes above the list. "rst_status_filter" is the Status drop-down added below and
+// "entry_date" is the Date filter; both are moved into this order after the drop-downs are rebuilt.
+const FILTER_ORDER = [...DROPDOWN_FILTERS, "rst_status_filter", "entry_date"];
 
 async function make_filters_dropdown(listview) {
 	const wrapper = listview.filter_area && listview.filter_area.standard_filters_wrapper;
@@ -100,6 +104,17 @@ async function make_filters_dropdown(listview) {
 			wrapper
 		);
 		if (current_value) field.set_value(current_value);
+	});
+
+	// Put every box in the order of FILTER_ORDER (Status is kept on the list view, not in fields_dict).
+	FILTER_ORDER.forEach((fieldname) => {
+		const field =
+			fieldname === "rst_status_filter"
+				? listview.rst_status_filter
+				: listview.page.fields_dict[fieldname];
+		if (field && field.wrapper) {
+			$(wrapper).append(field.wrapper);
+		}
 	});
 }
 

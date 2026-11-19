@@ -106,7 +106,8 @@
    "fieldname": "commodity",
    "fieldtype": "Data",
    "label": "Commodity",
-   "in_list_view": 1
+   "in_list_view": 1,
+   "in_standard_filter": 1
   },
   {
    "default": "Today",
@@ -114,7 +115,8 @@
    "fieldtype": "Date",
    "in_list_view": 0,
    "label": "Date",
-   "hidden": 1
+   "hidden": 1,
+   "in_standard_filter": 1
   },
   {
    "default": "Now",
@@ -197,7 +199,6 @@
    "description": "From the Season Master whose Start Date - End Date covers the RST Date & Time.",
    "fieldname": "season_code",
    "fieldtype": "Data",
-   "in_standard_filter": 1,
    "label": "Season Code",
    "no_copy": 1,
    "read_only": 1
@@ -255,7 +256,8 @@
    "fieldname": "place",
    "fieldtype": "Data",
    "label": "Place",
-   "in_list_view": 1
+   "in_list_view": 1,
+   "in_standard_filter": 1
   },
   {
    "fieldname": "transaction_type",
@@ -269,12 +271,13 @@
    "hidden": 1,
    "read_only": 1,
    "in_list_view": 1,
-   "description": "Depo RST (Rice Dispatch) only: copy of TP No, which holds the Lot No. Shown as a list column."
+   "description": "Depo RST (Rice Dispatch) only: copy of TP No, which holds the Lot No. Shown as a list column.",
+   "in_standard_filter": 1
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-18 16:00:00.000000",
+ "modified": "2026-11-19 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Procurement",
  "name": "RST Details",
