@@ -247,8 +247,8 @@ class QualityCheck(Document):
 	def _validate_old_new_bags(self):
 		_validate_qc_child_table_single_filled_row(
 			self.old_new_bags,
-			_("Paddy Type (In Bags)"),
-			_("Old Paddy Bags / New Paddy Bags"),
+			_("Bag Condition (Old / New)"),
+			_("Old Bags / New Bags"),
 			_is_old_new_bag_row_filled,
 		)
 

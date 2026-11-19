@@ -259,14 +259,12 @@ frappe.ui.form.on("RST Details", {
 	plastic_bags(frm) {
 		calculate_total_bags(frm);
 	},
-	old_bags(frm) {
-		calculate_total_bags(frm);
-	},
 });
 
-// Total Bags = Jute Bags + Plastic Bags + Old Bags (the server saves the same total).
+// Total Bags = Jute Bags + Plastic Bags (the server saves the same total).
+// Old / New Bags (Bag Condition) split the same bags, so they are not added.
 function calculate_total_bags(frm) {
-	const total = ["jute_bags", "plastic_bags", "old_bags"].reduce(
+	const total = ["jute_bags", "plastic_bags"].reduce(
 		(sum, fieldname) => sum + cint(frm.doc[fieldname]),
 		0
 	);

@@ -180,3 +180,4 @@ ivri_od.patches.v1_0.grn_note_types
 ivri_od.patches.v1_0.grn_note_list_lot_no
 ivri_od.patches.v1_0.rst_details_list_status_column
 ivri_od.patches.v1_0.rst_details_list_transaction_type_column
+ivri_od.patches.v1_0.wbm_bag_type_and_condition
