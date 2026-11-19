@@ -23,6 +23,7 @@ function wbm_quality_status(value, doc) {
 // The list shows only these columns, in this order (RST No is the title field, so it is always first).
 const WBM_LIST_COLUMN_ORDER = [
 	"rst_no",
+	"transaction_type",
 	"actual_truck_no",
 	"truck_no_in_tp",
 	"transit_pass_no",
@@ -57,6 +58,7 @@ const WBM_LIST_LABELS = {
 // Widths in pixels, wide enough for the heading and a normal value. Staff can still drag a column edge.
 const WBM_LIST_WIDTHS = {
 	rst_no: 120,
+	transaction_type: 140,
 	party_name: 220,
 	transit_pass_no: 110,
 	lot_no: 120,
