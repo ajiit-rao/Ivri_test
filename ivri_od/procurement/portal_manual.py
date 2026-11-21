@@ -138,7 +138,8 @@ GUNNY_COLUMNS = [
 # whose button lists the form (rrc: RRC Detail from SCMS, dcro: DCRO Details,
 # wings: WINGS Details); "site" defaults to SCMS. Without "columns" the grid takes
 # the columns of the section's latest row read from the portal (DCRO and WINGS
-# pages: columns not known in advance). "lots": the form enters the detail rows
+# pages: columns not known in advance); "skip_columns" leaves out its button
+# columns. "lots": the form enters the detail rows
 # of one parent row, picked by "parent_label"; "parent_form" adds parent rows.
 MANUAL_FORMS = {
 	"dc_summary": {"group": "rrc", "label": "RRC DC Summary", "section": DC_SECTION, "columns": DC_COLUMNS},
@@ -163,8 +164,26 @@ MANUAL_FORMS = {
 		"section": "Gunny Stock Register Details",
 		"columns": GUNNY_COLUMNS,
 	},
+	# Columns of these SCMS pages are not fixed here: taken from the latest row read from the portal.
+	"lot_search": {"group": "rrc", "label": "Lot Search", "section": "Lot Search"},
+	"rejected_lot": {"group": "rrc", "label": "Rejected Lot for RRC", "section": "Rejected Lot for RRC"},
+	"pending_lot_in": {"group": "rrc", "label": "Pending Lot In for RRC", "section": "Pending Lot In for RRC"},
 	"paddy_release": {"group": "dcro", "label": "Paddy Release", "section": "Paddy Release", "site": "DCRO"},
 	"view_dc": {"group": "dcro", "label": "View DC", "section": "View DC", "site": "DCRO"},
+	"dc_transit_challan": {
+		"group": "dcro",
+		"label": "DC Transit Challan",
+		"section": "DC Transit Challan",
+		"site": "DCRO",
+		# Portal buttons (open the lot, delete it, open the AC Note): no value to type.
+		"skip_columns": ["Details", "Delete", "Acnote Doc"],
+	},
+	"requisition_for_dc": {
+		"group": "dcro",
+		"label": "Requisition for DC",
+		"section": "Requisition for DC",
+		"site": "DCRO",
+	},
 	"tec_report": {"group": "wings", "label": "TEC Report", "section": "TEC Report", "site": "WINGS"},
 	"tec_delivered": {
 		"group": "wings",
@@ -252,7 +271,8 @@ def _columns(config: dict) -> list[str]:
 		limit=1,
 	)
 	cells = json.loads(latest[0].row_data or "{}") if latest else {}
-	columns = [h for h in cells if not BUTTON_COLUMN.match(h)]
+	skip = {c.lower() for c in config.get("skip_columns") or []}
+	columns = [h for h in cells if not BUTTON_COLUMN.match(h) and h.lower() not in skip]
 	if not columns:
 		frappe.throw(
 			_("Read {0} from the portal once, so the ERP knows its columns. Then rows can be entered by hand.").format(
