@@ -12,6 +12,7 @@ from ivri_od.procurement.bag_balance import get_weigh_bridge_bags_for_tp
 from ivri_od.procurement.grn_tp_fulfillment import refresh_tp_fulfillment_for_pass
 from ivri_od.procurement.other_tp import (
 	adjust_weights_for_other_tps,
+	copy_other_tps_to_rst,
 	resync_split_weighments,
 	sync_split_weighments,
 	validate_other_tps,
@@ -374,6 +375,9 @@ class WeighBridgeMeasurement(Document):
 	def on_update(self):
 		# First: one weighment per Other TP of this truck, so the GRN synced below links them.
 		sync_split_weighments(self)
+		# Other TPs given here or in the Mandi Book also show on the RST Details (RST's own push copies back itself).
+		if not self.flags.get("from_rst"):
+			copy_other_tps_to_rst(self)
 		self._sync_measurement_columns()
 		# Recheck when RST adds a TP key or tare/QC values make this WBM eligible.
 		_ensure_grn_note_for_weigh_bridge(self.name)

@@ -3,10 +3,10 @@
 issue for milling, total disposal and CB, in Quintal (2 decimals).
 
 Filters, season dates and the day-wise loop are shared with Rice Stock Register
-(ivri_od/procurement/stock_register.py). "Prog." columns count from the season Start Date.
+(ivri_od/procurement/stock_register.py). "Prog." columns count every movement of the season.
 All data is of the Mill, the District (filter) and the Season (Kharif / Rabi of the KMS Year;
-Both = the two together). No From / To Date: the days are the Season Master Start - End Date
-(not past today), else the first to the last day with data.
+Both = the two together). No From / To Date: the days are the first to the last day with data
+(Season Master Start / End Date are not used).
 District blank = all districts (every Transit Pass, DCRO district column and PVR row of the mill).
 
 Data sources:
@@ -76,7 +76,7 @@ def execute(filters=None):
 		+ get_issue_for_milling(filters, filters.to_date)
 	)
 	stock_register.set_period(filters, season, movements)
-	data = build_rows(season.start_date, filters.from_date, filters.to_date, 0, movements)
+	data = build_rows(None, filters.from_date, filters.to_date, 0, movements)
 
 	title = stock_register.get_title("PADDY STOCK REGISTER", filters)
 	if data:

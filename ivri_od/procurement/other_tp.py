@@ -29,7 +29,10 @@ from ivri_od.procurement.transit_pass_resolve import (
 )
 
 WBM = "Weigh Bridge Measurement"
-ROW_FIELDS = ("season", "transit_pass_no", "ppc_name", "mill_no", "qty", "pass_unique_key", "weighment")
+ROW_FIELDS = (
+	"season", "transit_pass_no", "ppc_name", "mill_no", "qty", "gunny_weight", "deduction", "net_weight",
+	"jute_bags", "plastic_bags", "pass_unique_key", "weighment",
+)
 # Copied from the truck's weighment to a split weighment: same RST, visit, Quality Check and vehicle.
 COPY_FIELDS = (
 	"rst_no", "date", "gate_entry", "quality_check", "slno_of_qc", "quality_test", "commodity", "gunny_type",
@@ -52,6 +55,62 @@ def other_tp_total(rows) -> float:
 	return flt(sum(flt(row.get("qty")) for row in rows or []), 3)
 
 
+def row_net(row) -> float:
+	"""Net Weight of an other TP: its Gross Weight (Qty) less its own Gunny Weight and Deduction."""
+	return flt(flt(row.get("qty")) - flt(row.get("gunny_weight")) - flt(row.get("deduction")), 3)
+
+
+def other_tp_sums(rows) -> frappe._dict:
+	"""Totals of the other TPs: what the truck's own TP does not carry."""
+	rows = rows or []
+	return frappe._dict(
+		qty=other_tp_total(rows),
+		gunny=flt(sum(flt(r.get("gunny_weight")) for r in rows), 3),
+		deduction=flt(sum(flt(r.get("deduction")) for r in rows), 3),
+		net=flt(sum(row_net(r) for r in rows), 3),
+		jute=sum(cint(r.get("jute_bags")) for r in rows),
+		plastic=sum(cint(r.get("plastic_bags")) for r in rows),
+	)
+
+
+def bag_totals(bag_rows) -> tuple[int, int]:
+	"""Jute and Plastic bags of a weighment's Bag Type table."""
+	rows = bag_rows or []
+	return sum(cint(r.get("jute_bags")) for r in rows), sum(cint(r.get("plastic_bags")) for r in rows)
+
+
+def other_tp_bags_of_truck(wbm_name: str | None) -> tuple[int, int]:
+	"""Bags given to the other TPs of a truck's own weighment (0, 0 for any other weighment).
+	The truck's own TP has the truck's bags less these."""
+	if not wbm_name or frappe.db.get_value(WBM, wbm_name, "split_from_weighment"):
+		return 0, 0
+	rows = frappe.get_all(
+		"Weighment Other TP",
+		filters={"parent": wbm_name, "parenttype": WBM, "parentfield": "other_tp_details"},
+		fields=["jute_bags", "plastic_bags"],
+	)
+	return bag_totals(rows)
+
+
+def _split_bags(child) -> tuple[int, int]:
+	"""Bags of a split weighment: from its row in the truck's Other TPs (0, 0 when none given)."""
+	given = child.flags.get("other_tp_bags")
+	if given is not None:
+		return cint(given[0]), cint(given[1])
+	for filters in ({"weighment": child.name}, {"pass_unique_key": child.pass_unique_key}):
+		if not (filters.get("weighment") or filters.get("pass_unique_key")):
+			continue
+		row = frappe.db.get_value(
+			"Weighment Other TP",
+			{"parent": child.split_from_weighment, "parenttype": WBM, "parentfield": "other_tp_details", **filters},
+			["jute_bags", "plastic_bags"],
+			as_dict=True,
+		)
+		if row:
+			return cint(row.jute_bags), cint(row.plastic_bags)
+	return 0, 0
+
+
 def _filled(rows):
 	return [row for row in rows or [] if (row.get("transit_pass_no") or "").strip() or flt(row.get("qty"))]
 
@@ -70,16 +129,20 @@ def adjust_weights_for_other_tps(wbm) -> None:
 		return
 	rst_net = flt(wbm.net_weight, 3)
 	wbm.rst_net_weight = rst_net
-	wbm.other_tp_qty = other_tp_total(_filled(wbm.get("other_tp_details")))
-	# This TP's Qty: the truck's Gross Weight less the other TPs. Net = that less gunny and deduction.
-	wbm.tp_qty = flt(max(flt(wbm.gross_weight) - flt(wbm.other_tp_qty), 0.0), 3)
-	wbm.net_weight = flt(max(rst_net - flt(wbm.other_tp_qty), 0.0), 3)
+	sums = other_tp_sums(_filled(wbm.get("other_tp_details")))
+	wbm.other_tp_qty = sums.qty
+	# This TP's Qty: the truck's Gross Weight less the other TPs.
+	wbm.tp_qty = flt(max(flt(wbm.gross_weight) - sums.qty, 0.0), 3)
+	# This TP's Net: the RST Net less the other TPs' Net. Every other TP carries its own gunny and deduction,
+	# this TP the rest of the truck's, so the Net of all TPs adds up to the RST Net Weight.
+	wbm.net_weight = flt(max(rst_net - sums.net, 0.0), 3)
 
 
 def _copy_split_weights(child) -> None:
-	"""Split weighment: Load, Tare, Gross, Gunny and bags are the truck's (the real weighbridge readings).
+	"""Split weighment: Load, Tare, Gross and bags are the truck's (the real weighbridge readings).
 
-	Deduction is this TP's own (0 by default, entered on the split weighment); Net Weight = Qty - Deduction.
+	Gunny Weight and Deduction are this TP's own (from its Other TPs row, 0 by default);
+	Net Weight = Qty - Gunny Weight - Deduction.
 	"""
 	parent = frappe.db.get_value(
 		WBM,
@@ -95,19 +158,22 @@ def _copy_split_weights(child) -> None:
 	)
 	qty = flt(child.split_qty, 3)
 	child.rst_net_weight = flt(rst_net, 3)
-	for field in ("load_weight", "tare_weight", "gross_weight", "gunny_weight"):
+	for field in ("load_weight", "tare_weight", "gross_weight"):
 		child.set(field, flt(parent.get(field), 3))
-	child.total_bags = cint(parent.total_bags)
 	child.no_of_bags = cint(parent.no_of_bags)
 	deduction = flt(child.deduction, 3)
-	if deduction < 0:
-		frappe.throw(_("Deduction cannot be less than 0."))
-	if qty > 0 and deduction >= qty:
+	gunny = flt(child.gunny_weight, 3)
+	if deduction < 0 or gunny < 0:
+		frappe.throw(_("Gunny Weight and Deduction cannot be less than 0."))
+	if qty > 0 and gunny + deduction >= qty:
 		frappe.throw(
-			_("Deduction ({0} QT) must be less than the Qty of this TP ({1} QT).").format(deduction, qty)
+			_("Gunny Weight + Deduction ({0} QT) must be less than the Gross Weight of this TP ({1} QT).").format(
+				flt(gunny + deduction, 3), qty
+			)
 		)
 	child.deduction = deduction
-	child.net_weight = 0 if (parent.quality_test or "") == "Rejected" else flt(qty - deduction, 3)
+	child.gunny_weight = gunny
+	child.net_weight = 0 if (parent.quality_test or "") == "Rejected" else flt(qty - gunny - deduction, 3)
 
 
 # ------------------------------------------------------------------ validate
@@ -130,6 +196,12 @@ def validate_split_weighment(child) -> None:
 	child.same_truck_as_transit_pass = 1 if truck and truck != (child.truck_no_in_tp or "") else 0
 	child.actual_truck_no = truck
 	_copy_split_weights(child)
+	# Its bags: what its row in the truck's Other TPs gives it (Bag Type table, one row). Bag Condition stays 0:
+	# the truck's own weighment keeps the Quality Check's Old / New bags.
+	jute, plastic = _split_bags(child)
+	child.set("bag_weight_details", [{"jute_bags": jute, "plastic_bags": plastic, "total_bags": jute + plastic, "gunny_weight_qt": 0}])
+	child.set("old_new_bags", [{"old_bags": 0, "new_bags": 0}])
+	child.total_bags = jute + plastic
 	# Its "Other TPs": the truck's own TP and the other split TPs of the same RST.
 	rows = truck_other_tps(child.name, child.split_from_weighment, child.pass_unique_key)
 	child.set("other_tp_details", [{field: row.get(field) for field in ROW_FIELDS} for row in rows])
@@ -160,7 +232,22 @@ def validate_other_tps(wbm) -> None:
 		if not row.transit_pass_no:
 			frappe.throw(_("Other TPs, row {0}: enter the TP No.").format(row.idx))
 		if flt(row.qty) <= 0:
-			frappe.throw(_("Other TPs, row {0}: enter the Qty of TP No {1}.").format(row.idx, row.transit_pass_no))
+			frappe.throw(_("Other TPs, row {0}: enter the Gross Weight of TP No {1}.").format(row.idx, row.transit_pass_no))
+		row.gunny_weight = flt(row.gunny_weight, 3)
+		row.deduction = flt(row.deduction, 3)
+		if row.gunny_weight < 0 or row.deduction < 0:
+			frappe.throw(_("Other TPs, row {0}: Gunny Weight and Deduction cannot be less than 0.").format(row.idx))
+		if row.gunny_weight + row.deduction >= flt(row.qty):
+			frappe.throw(
+				_("Other TPs, row {0}: Gunny Weight + Deduction of TP No {1} must be less than its Gross Weight.").format(
+					row.idx, row.transit_pass_no
+				)
+			)
+		row.net_weight = row_net(row)
+		row.jute_bags = cint(row.jute_bags)
+		row.plastic_bags = cint(row.plastic_bags)
+		if row.jute_bags < 0 or row.plastic_bags < 0:
+			frappe.throw(_("Other TPs, row {0}: bags cannot be less than 0.").format(row.idx))
 		ppc = (row.ppc_name or "").strip() or own_ppc
 		# Season of the other TP: as chosen, else the season of this weighment's TP.
 		season = (row.season or "").strip() or own_season
@@ -189,6 +276,27 @@ def validate_other_tps(wbm) -> None:
 		row.mill_no = (row.mill_no or "").strip() or mill or None
 		row.pass_unique_key = key
 
+	sums = other_tp_sums(rows)
+	# The truck's own TP keeps the rest of the truck's gunny and deduction, so the other TPs cannot take more.
+	if sums.gunny > flt(wbm.gunny_weight, 3):
+		frappe.throw(
+			_("The Gunny Weight of the other TPs ({0} QT) is more than the truck's Gunny Weight ({1} QT).").format(
+				sums.gunny, flt(wbm.gunny_weight, 3)
+			)
+		)
+	if sums.deduction > flt(wbm.deduction, 3):
+		frappe.throw(
+			_("The Deduction of the other TPs ({0} QT) is more than the truck's Deduction ({1} QT).").format(
+				sums.deduction, flt(wbm.deduction, 3)
+			)
+		)
+	truck_jute, truck_plastic = bag_totals(wbm.get("bag_weight_details"))
+	if sums.jute > truck_jute or sums.plastic > truck_plastic:
+		frappe.throw(
+			_("The other TPs have {0} Jute and {1} Plastic bags, but the truck has only {2} Jute and {3} Plastic bags.").format(
+				sums.jute, sums.plastic, truck_jute, truck_plastic
+			)
+		)
 	rst_net = flt(wbm.rst_net_weight, 3)
 	if wbm.other_tp_qty >= rst_net:
 		frappe.throw(
@@ -228,11 +336,10 @@ def sync_split_weighments(wbm) -> None:
 		child.split_from_weighment = wbm.name
 		child.split_qty = flt(row.qty, 3)
 		child.pass_unique_key = row.pass_unique_key
-		# Deduction given in the Mandi Book dialog (else the split weighment keeps its own).
-		deductions = wbm.flags.get("other_tp_deduction_by_tp") or {}
-		tp_no = (row.transit_pass_no or "").strip()
-		if tp_no in deductions:
-			child.deduction = deductions[tp_no]
+		# Its own Gunny Weight and Deduction come from its row (RST Details, Mandi Book or this weighment).
+		child.gunny_weight = flt(row.gunny_weight, 3)
+		child.deduction = flt(row.deduction, 3)
+		child.flags.other_tp_bags = (cint(row.jute_bags), cint(row.plastic_bags))
 		child.flags.ignore_permissions = True
 		child.save()
 		kept.add(child.name)
@@ -284,7 +391,10 @@ def truck_other_tps(wbm_name: str | None, truck: str, own_key: str | None) -> li
 	if not wbm_name or wbm_name == truck:
 		return rows
 	p = frappe.db.get_value(
-		WBM, truck, ["transit_pass_no", "pass_unique_key", "pacs_name", "gross_weight", "other_tp_qty"], as_dict=True
+		WBM, truck,
+		["transit_pass_no", "pass_unique_key", "pacs_name", "gross_weight", "other_tp_qty", "gunny_weight", "deduction",
+		 "net_weight"],
+		as_dict=True,
 	)
 	if not p:
 		return rows
@@ -295,6 +405,11 @@ def truck_other_tps(wbm_name: str | None, truck: str, own_key: str | None) -> li
 		mill_no=resolve_mill_master_name(p.pass_unique_key, None) or None,
 		# Its Qty is Gross - Other TPs, so in every weighment of the RST: Gross - Other TPs = its own TP Qty.
 		qty=flt(max(flt(p.gross_weight) - flt(p.other_tp_qty), 0.0), 3),
+		gunny_weight=flt(max(flt(p.gunny_weight) - other_tp_sums(rows).gunny, 0.0), 3),
+		deduction=flt(max(flt(p.deduction) - other_tp_sums(rows).deduction, 0.0), 3),
+		net_weight=flt(p.net_weight, 3),
+		jute_bags=max(_truck_bags(truck)[0] - other_tp_sums(rows).jute, 0),
+		plastic_bags=max(_truck_bags(truck)[1] - other_tp_sums(rows).plastic, 0),
 		pass_unique_key=p.pass_unique_key,
 		weighment=truck,
 	)
@@ -303,6 +418,16 @@ def truck_other_tps(wbm_name: str | None, truck: str, own_key: str | None) -> li
 		row for row in rows
 		if (row.weighment or "") != wbm_name and (row.pass_unique_key or "") != (own_key or "")
 	]
+
+
+def _truck_bags(wbm_name: str) -> tuple[int, int]:
+	return bag_totals(
+		frappe.get_all(
+			"Weigh Bridge Bag Detail",
+			filters={"parent": wbm_name, "parenttype": WBM, "parentfield": "bag_weight_details"},
+			fields=["jute_bags", "plastic_bags"],
+		)
+	)
 
 
 def apply_other_tps_to_grn(grn, wbm_name: str, wbm_net_weight: float) -> None:
@@ -316,6 +441,11 @@ def apply_other_tps_to_grn(grn, wbm_name: str, wbm_net_weight: float) -> None:
 	grn.other_tp_qty = other_tp_total(rows)
 	grn.rst_net_weight = flt(w.rst_net_weight, 3) or flt(wbm_net_weight, 3)
 	grn.net_weight = flt(wbm_net_weight, 3)
+	if not w.split_from_weighment and rows:
+		# The truck's own TP: the truck's gunny and deduction less what the other TPs carry.
+		sums = other_tp_sums(rows)
+		grn.gunny_weight = flt(max(flt(grn.gunny_weight) - sums.gunny, 0.0), 3)
+		grn.deduction = flt(max(flt(grn.deduction) - sums.deduction, 0.0), 3)
 
 
 def _grn_for_wbm(wbm_name: str) -> str | None:
@@ -328,20 +458,25 @@ def _grn_for_wbm(wbm_name: str) -> str | None:
 def _all_tps(wbm) -> list[dict]:
 	"""Every TP of the truck's RST: its own TP first, then the other TPs, with names and quantities."""
 	gross = flt(wbm.gross_weight, 3)
+	sums = other_tp_sums(_filled(wbm.get("other_tp_details")))
 	own = {
 		"season": tp_season(wbm.pass_unique_key),
 		"transit_pass_no": (wbm.transit_pass_no or "").strip(),
 		"ppc_name": resolve_ppc_master_name(wbm.pacs_name) or None,
 		"mill_no": resolve_mill_master_name(wbm.pass_unique_key, None) or None,
 		"qty": flt(wbm.get("tp_qty"), 3) or flt(max(gross - flt(wbm.other_tp_qty), 0.0), 3),
+		"gunny_weight": flt(max(flt(wbm.gunny_weight) - sums.gunny, 0.0), 3),
+		"deduction": flt(max(flt(wbm.deduction) - sums.deduction, 0.0), 3),
+		"net_weight": flt(wbm.net_weight, 3),
+		"jute_bags": max(bag_totals(wbm.get("bag_weight_details"))[0] - sums.jute, 0),
+		"plastic_bags": max(bag_totals(wbm.get("bag_weight_details"))[1] - sums.plastic, 0),
 		"weighment": wbm.name,
 		"is_own": 1,
 	}
 	rows = [own] + [{field: row.get(field) for field in ROW_FIELDS} for row in wbm.get("other_tp_details") or []]
 	for row in rows:
-		w = frappe.db.get_value(WBM, row.get("weighment"), ["net_weight", "deduction"], as_dict=True) if row.get("weighment") else None
-		row["net_weight"] = flt(w.net_weight, 3) if w else None
-		row["deduction"] = flt(w.deduction, 3) if w else None
+		if not row.get("is_own"):
+			row["net_weight"] = row_net(row)
 		row["grn"] = _grn_for_wbm(row["weighment"]) if row.get("weighment") else None
 		ppc = row.get("ppc_name")
 		row["ppc_label"] = (frappe.db.get_value("PPC Master", ppc, "ppc_name") if ppc else None) or ppc or ""
@@ -381,16 +516,11 @@ def save_other_tps(wbm_name: str, rows) -> dict:
 	wbm.check_permission("write")
 	old = {(row.transit_pass_no or "").strip(): row.weighment for row in wbm.get("other_tp_details") or []}
 	wbm.set("other_tp_details", [])
-	deduction_by_tp = {}
 	for row in rows or []:
 		values = {field: row.get(field) for field in ROW_FIELDS if field != "weighment"}
 		# Keep the weighment of a TP already given, so it is updated and not made again.
 		values["weighment"] = old.get((row.get("transit_pass_no") or "").strip())
 		wbm.append("other_tp_details", values)
-		if row.get("deduction") is not None and row.get("deduction") != "":
-			deduction_by_tp[(row.get("transit_pass_no") or "").strip()] = flt(row.get("deduction"), 3)
-	# sync_split_weighments (on_update) gives each split weighment its Deduction from this.
-	wbm.flags.other_tp_deduction_by_tp = deduction_by_tp
 	wbm.save()
 	grn = _grn_for_wbm(wbm.name)
 	net = flt(frappe.db.get_value("GRN Note", grn, "net_weight"), 3) if grn else None
@@ -401,3 +531,126 @@ def save_other_tps(wbm_name: str, rows) -> dict:
 		"count": cint(len(wbm.other_tp_details)),
 		"weighments": [row.weighment for row in wbm.other_tp_details],
 	}
+
+
+@frappe.whitelist(methods=["POST"])
+def save_other_tp_bags(wbm_name: str, jute_bags=0, plastic_bags=0) -> dict:
+	"""Mandi Book (Edit, click the bags of an other TP): the Jute / Plastic bags of that TP.
+
+	Saved on its row in the truck's Other TPs; the truck's weighment save gives them to the TP's own
+	weighment (Bag Type table) and GRN, and the truck's own TP keeps the rest."""
+	split = frappe.db.get_value(WBM, wbm_name, ["split_from_weighment", "pass_unique_key"], as_dict=True)
+	if not split or not split.split_from_weighment:
+		frappe.throw(_("Bags can be given here only to an other TP of a truck. The truck's own TP keeps the rest."))
+	truck = frappe.get_doc(WBM, split.split_from_weighment)
+	truck.check_permission("write")
+	rows = truck.get("other_tp_details") or []
+	row = next((r for r in rows if r.weighment == wbm_name), None) or next(
+		(r for r in rows if split.pass_unique_key and r.pass_unique_key == split.pass_unique_key), None
+	)
+	if not row:
+		frappe.throw(_("TP of weighment {0} not found in the Other TPs of weighment {1}.").format(wbm_name, truck.name))
+	row.jute_bags = cint(jute_bags)
+	row.plastic_bags = cint(plastic_bags)
+	truck.save()
+	return {"truck": truck.name, "jute_bags": row.jute_bags, "plastic_bags": row.plastic_bags}
+
+
+# ------------------------------------------------------------------ RST Details (both ways)
+
+RST = "RST Details"
+OTHER_TP_ROW = "Weighment Other TP"
+
+
+def _row_key(row) -> tuple:
+	"""What the user enters on an Other TPs row (links filled by the system are not compared)."""
+	return (
+		(row.get("transit_pass_no") or "").strip(),
+		(row.get("ppc_name") or "").strip(),
+		(row.get("season") or "").strip(),
+		(row.get("mill_no") or "").strip(),
+		flt(row.get("qty"), 3),
+		flt(row.get("gunny_weight"), 3),
+		flt(row.get("deduction"), 3),
+		cint(row.get("jute_bags")),
+		cint(row.get("plastic_bags")),
+	)
+
+
+def _rst_has_other_tps() -> bool:
+	return frappe.get_meta(RST).has_field("other_tp_details")
+
+
+def push_other_tps_from_rst(rst) -> bool:
+	"""RST Details.on_update: the RST's Other TPs go to its weighment (truck's own weighment).
+
+	The weighment save checks the rows and makes / updates / removes one weighment and GRN per other TP
+	(see sync_split_weighments). The checked rows (PPC, Mill, Season, links) are copied back to the RST.
+	Returns True when the weighment was changed.
+	"""
+	rows = _filled(rst.get("other_tp_details"))
+	wbm_name = (rst.get("weigh_bridge_measurement") or "").strip()
+	if not wbm_name or not frappe.db.exists(WBM, wbm_name):
+		if rows:
+			frappe.throw(
+				_("Other TPs need the Weigh Bridge of RST {0}, but it has none. Correct the TP No / Party Name first.").format(
+					rst.rst_no or rst.name
+				)
+			)
+		return False
+	wbm = frappe.get_doc(WBM, wbm_name)
+	if wbm.get("split_from_weighment"):
+		return False
+	if [_row_key(r) for r in rows] == [_row_key(r) for r in _filled(wbm.get("other_tp_details"))]:
+		return False
+
+	old = {(row.transit_pass_no or "").strip(): row.weighment for row in wbm.get("other_tp_details") or []}
+	wbm.set("other_tp_details", [])
+	for row in rows:
+		values = {field: row.get(field) for field in ROW_FIELDS if field != "weighment"}
+		# Keep the weighment of a TP already given, so it is updated and not made again.
+		values["weighment"] = old.get((row.get("transit_pass_no") or "").strip())
+		wbm.append("other_tp_details", values)
+	wbm.flags.from_rst = True
+	wbm.flags.ignore_permissions = True
+	wbm.save()
+	copy_other_tps_to_rst(wbm)
+	return True
+
+
+def copy_other_tps_to_rst(wbm) -> None:
+	"""The truck weighment's Other TPs are written to its RST Details (after a Mandi Book / weighment save).
+
+	Written straight to the table (no RST save), so it does not start the RST -> weighment sync again.
+	"""
+	rst_name = (wbm.get("demo_rst_data") or "").strip()
+	if not rst_name or wbm.get("split_from_weighment") or not _rst_has_other_tps():
+		return
+	if not frappe.db.exists(RST, rst_name):
+		return
+	if frappe.db.get_value(RST, rst_name, "weigh_bridge_measurement") != wbm.name:
+		return
+	rows = _filled(wbm.get("other_tp_details"))
+	current = frappe.get_all(
+		OTHER_TP_ROW,
+		filters={"parenttype": RST, "parent": rst_name, "parentfield": "other_tp_details"},
+		fields=list(ROW_FIELDS),
+		order_by="idx asc",
+	)
+	if [{f: r.get(f) or None for f in ROW_FIELDS} for r in current] == [
+		{f: (flt(r.get(f), 3) if f == "qty" else r.get(f)) or None for f in ROW_FIELDS} for r in rows
+	]:
+		return
+	frappe.db.delete(OTHER_TP_ROW, {"parenttype": RST, "parent": rst_name, "parentfield": "other_tp_details"})
+	for idx, row in enumerate(rows, start=1):
+		frappe.get_doc(
+			{
+				"doctype": OTHER_TP_ROW,
+				"parent": rst_name,
+				"parenttype": RST,
+				"parentfield": "other_tp_details",
+				"idx": idx,
+				**{field: row.get(field) for field in ROW_FIELDS},
+			}
+		).db_insert()
+	frappe.db.set_value(RST, rst_name, "other_tp_qty", other_tp_total(rows), update_modified=False)

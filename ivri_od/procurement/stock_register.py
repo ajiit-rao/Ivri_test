@@ -3,11 +3,10 @@
 
 - Filters: Mill Name (Mill Master), KMS Year ("25-26"), Season (Both / Kharif / Rabi), District
   (District Master, printed as "AC - <District>"). No From / To Date (as in Stock Account for Paddy).
-- Season from Season Master (KMS Year + Kharif / Rabi; Both = the two). Start / End Date are
-  optional: the data is already of that KMS Year and season, so without a Start Date "Prog."
-  totals count every movement up to the day; with one, they count from it.
-- Days shown (set_period): Season Master Start Date - End Date (not past today), else the first
-  to the last day with data.
+- Season from Season Master (KMS Year + Kharif / Rabi; Both = the two). Its Start / End Date are
+  never used (only RST Details uses them, for its Season Code): the data is already of that KMS Year
+  and season, so "Prog." totals count every movement up to the day.
+- Days shown (set_period): the first to the last day with data.
 - day_rows(): one entry per day with O.B., the day's movements, progressive totals and C.B.
   Each report turns these into its own columns.
 """
@@ -27,7 +26,6 @@ from ivri_od.procurement.report.stock_account_for_paddy.stock_account_for_paddy 
 	NO_END,
 	get_kms_season_masters,
 	season_master_year,
-	season_period,
 )
 
 SEASONS = CROP_SEASONS
@@ -40,7 +38,7 @@ def validate_filters(filters, district_required=True):
 	"""Check the common filters, set filters.company, filters.ac (the District filter),
 	filters.season ("Both" / "Kharif" / "Rabi"), filters.crop_season (None for Both) and
 	filters.to_date (upper limit for reading data; set_period() sets the real days). Returns the
-	season(s): frappe._dict(names, start_date, end_date).
+	season(s): frappe._dict(names).
 
 	With ``district_required=False`` the District may be blank: filters.district stays empty
 	(= all districts) and filters.ac is "All Districts"."""
@@ -75,16 +73,14 @@ def validate_filters(filters, district_required=True):
 
 	seasons = get_seasons(filters.kms_year, filters.crop_season)
 	filters.from_date = None
-	filters.to_date = seasons.end_date or NO_END
+	filters.to_date = NO_END
 	return seasons
 
 
 def get_seasons(kms_year, crop_season=None):
-	"""Season Master(s) of the KMS Year: only ``crop_season``'s, or Kharif and Rabi when None.
-	start_date / end_date: earliest Start / latest End Date, None unless every season has it."""
+	"""Season Master(s) of the KMS Year: only ``crop_season``'s, or Kharif and Rabi when None."""
 	masters = get_kms_season_masters(kms_year, crop_season)  # stops when there is none
-	start, end = season_period(masters)
-	return frappe._dict(names=[m.name for m in masters], start_date=start, end_date=end)
+	return frappe._dict(names=[m.name for m in masters])
 
 
 def season_matches(value, crop_season):
@@ -97,14 +93,12 @@ def season_matches(value, crop_season):
 
 
 def set_period(filters, seasons, movements):
-	"""Set filters.from_date / to_date: the Season Master Start - End Date (End not later than today,
-	unless there is data after today), else the first to the last day of the movements; today when
-	there is no data at all."""
+	"""Set filters.from_date / to_date: the first to the last day of the movements; today when there
+	is no data at all. (Season Master Start / End Date are never used.)"""
 	dates = [getdate(movement[0]) for movement in movements]
 	today = getdate()
-	last = max(dates) if dates else today
-	from_date = seasons.start_date or (min(dates) if dates else today)
-	to_date = min(seasons.end_date, max(today, last)) if seasons.end_date else last
+	from_date = min(dates) if dates else today
+	to_date = max(dates) if dates else today
 	filters.from_date, filters.to_date = from_date, max(to_date, from_date)
 
 
@@ -126,7 +120,7 @@ def day_rows(season_start, from_date, to_date, season_opening, movements, receip
 	from season start up to and including the day), total_stock, cb, mismatch (1 when
 	C.B. != season opening + progressive receipts - progressive disposals).
 	"""
-	# No season start (Season Master without Start Date): count every movement before From Date.
+	# season_start None (the registers never pass one): count every movement before From Date.
 	season_start = getdate(season_start) if season_start else datetime.date.min
 	from_date, to_date = getdate(from_date), getdate(to_date)
 	kinds = (*receipts, *disposals, *others)

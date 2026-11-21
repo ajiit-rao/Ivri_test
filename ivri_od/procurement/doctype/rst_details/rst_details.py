@@ -14,6 +14,7 @@ from ivri_od.procurement.doctype.season_master.season_master import get_season_c
 from ivri_od.procurement.grn_tp_fulfillment import chhatni_from_rate
 
 from ivri_od.procurement.mill_gate import normalize_vehicle_no
+from ivri_od.procurement.other_tp import push_other_tps_from_rst
 from ivri_od.procurement.transit_pass_resolve import (
 	_transit_pass_matches_season,
 	find_transit_passes_by_tp_and_ppc,
@@ -38,6 +39,7 @@ class RSTDetails(Document):
 		self._set_total_bags()
 		self._validate_mill_name()
 		self._validate_local_purchase_order()
+		self._validate_other_tps()
 
 	def on_trash(self):
 		wbm_name = self.weigh_bridge_measurement
@@ -67,6 +69,25 @@ class RSTDetails(Document):
 				title=_("Transit Pass / Weigh Bridge Error"),
 				indicator="red",
 				alert=True,
+			)
+		# Other TPs in this RST: not inside the try above, so a wrong row stops the save with its message.
+		if self.meta.has_field("other_tp_details") and push_other_tps_from_rst(self):
+			# Show the rows as checked (PPC, Mill, Season and the weighment of each TP).
+			self.reload()
+
+	def _validate_other_tps(self):
+		"""Other TPs can be given only for a truck under a received Transit Pass (TP Received)."""
+		if not self.meta.has_field("other_tp_details"):
+			return
+		rows = [r for r in self.get("other_tp_details") or [] if (r.transit_pass_no or "").strip() or flt(r.qty)]
+		self.set("other_tp_details", rows)
+		self.other_tp_qty = flt(sum(flt(r.qty) for r in rows), 3)
+		if rows and (self.tp_status or "").strip() != "TP Received":
+			frappe.throw(
+				_("Other TPs can be added only when TP Status is TP Received (this RST is {0}).").format(
+					frappe.bold(self.tp_status or "-")
+				),
+				title=_("Other TPs"),
 			)
 
 	def _sync_mill_and_agent_from_transit_pass(self):
@@ -157,20 +178,38 @@ class RSTDetails(Document):
 			title = _("RST Unique Key") if details.get("season_code") else _("Season Not Configured")
 			frappe.msgprint(details["key_message"], title=title, indicator="orange")
 
+	def autoname(self):
+		"""ID is the RST No. A repeated RST No gets a suffix: 5395, 5395-1, 5395-2 ..."""
+		rst_no = (self.rst_no or "").strip()
+		self.rst_no = rst_no
+		name, count = rst_no, 0
+		while frappe.db.exists("RST Details", name):
+			count += 1
+			name = f"{rst_no}-{count}"
+		self.name = name
+
 	def _validate_unique_rst_no(self):
+		"""The same RST No may repeat for another Party Name or TP No.
+		Only the same RST No + Party Name + TP No together is a duplicate (blank and "0" TP are one value)."""
 		rst_no = (self.rst_no or "").strip()
 		if not rst_no:
 			return
 
+		party = rst_party_key(self.party_name)
+		tp_no = rst_tp_key(self.tp_no)
 		filters = {"rst_no": rst_no}
 		if not self.is_new():
 			filters["name"] = ["!=", self.name]
 
-		if frappe.db.exists("RST Details", filters):
-			frappe.throw(
-				_("RST No {0} already exists. Enter a unique RST No.").format(frappe.bold(rst_no)),
-				title=_("Duplicate RST No"),
-			)
+		for row in frappe.get_all("RST Details", filters=filters, fields=["name", "party_name", "tp_no"]):
+			if rst_party_key(row.party_name) == party and rst_tp_key(row.tp_no) == tp_no:
+				frappe.throw(
+					_("RST No {0} with this Party Name and TP No already exists in {1}. "
+					  "Change the Party Name or TP No, or open the existing RST.").format(
+						frappe.bold(rst_no), frappe.bold(row.name)
+					),
+					title=_("Duplicate RST No"),
+				)
 
 	def _validate_local_purchase_order(self):
 		if not (self.local_purchase_order or "").strip():
@@ -348,11 +387,14 @@ class RSTDetails(Document):
 				wbm.set(fieldname, value)
 			if awaiting_tp or unresolved:
 				wbm.flags.ignore_mandatory = True
+			# The RST pushes its own Other TPs after this save, so the weighment must not copy its old rows back.
+			wbm.flags.from_rst = True
 			wbm.save(ignore_permissions=True)
 		else:
 			wbm = frappe.get_doc({"doctype": "Weigh Bridge Measurement", **values})
 			if awaiting_tp:
 				wbm.flags.ignore_mandatory = True
+			wbm.flags.from_rst = True
 			wbm.insert(ignore_permissions=True)
 			self.weigh_bridge_measurement = wbm.name
 			self.db_set("weigh_bridge_measurement", wbm.name, update_modified=False)
@@ -523,6 +565,16 @@ def tp_no_is_blank(tp_no) -> bool:
 	"""True when no TP No was given: empty, or only zeros ("0" is typed when there is no TP)."""
 	text = (tp_no or "").strip()
 	return not text or set(text) == {"0"}
+
+
+def rst_tp_key(tp_no) -> str:
+	"""TP No for the RST duplicate check: blank and "0" are the same, case and spaces ignored."""
+	return "" if tp_no_is_blank(tp_no) else "".join((tp_no or "").split()).casefold()
+
+
+def rst_party_key(party_name) -> str:
+	"""Party Name for the RST duplicate check: case and extra spaces ignored."""
+	return " ".join((party_name or "").split()).casefold()
 
 
 PRIVATE_STATUS_PREFIX = "Local"

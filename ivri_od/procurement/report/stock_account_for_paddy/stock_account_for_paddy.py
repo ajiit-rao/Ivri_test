@@ -51,8 +51,7 @@ NO_END = getdate("2999-12-31")
 
 def execute(filters=None):
 	"""Season filter (Both / Kharif / Rabi) in place of From Month - To Month: the months shown are
-	the Season Master Start Date - End Date of the chosen season(s), else (dates not set) the first
-	to the last month with data. Transit Passes, DCRO Paddy Release and Issue for Milling are of
+	the first to the last month with data (Season Master Start / End Date are not used: only RST Details uses them, for its Season Code). Transit Passes, DCRO Paddy Release and Issue for Milling are of
 	the chosen season(s) only."""
 	filters = frappe._dict(filters or {})
 	crop_season = validate_season_filters(filters)
@@ -64,15 +63,16 @@ def execute(filters=None):
 		)
 
 	seasons = get_kms_season_masters(filters.kms_year, crop_season)
-	start, end = season_period(seasons)
-	to_date = end or NO_END
+	# Season Master Start / End Date are not used here (only RST Details uses them, for its Season Code):
+	# the data is picked by KMS Year and Season, and the months are the first to the last month with data.
+	to_date = NO_END
 	passes, skipped_passes = get_transit_passes(filters, [s.name for s in seasons], to_date)
 	releases = get_dcro_releases(filters, to_date, crop_season=crop_season)
 	paddy_released = [(date, PADDY_RELEASED, qty) for date, _column, qty in releases]
 	movements = (
 		tp_receipts(passes) + paddy_released + get_issue_for_milling(filters, to_date, crop_season=crop_season)
 	)
-	from_date, to_date = statement_period(start, end, movements)
+	from_date, to_date = statement_period(movements)
 	opening, by_month = classify(movements, from_date)
 	data = build_rows(get_months(from_date, to_date), opening, by_month)
 
@@ -101,11 +101,11 @@ def validate_season_filters(filters):
 
 
 def get_kms_season_masters(kms_year, crop_season=None):
-	"""Season Masters (name, start_date, end_date) of the KMS Year; only the crop season's when given."""
+	"""Season Masters (name) of the KMS Year; only the crop season's when given."""
 	conditions = {"year": season_master_year(kms_year)}
 	if crop_season:
 		conditions["crop_season"] = crop_season
-	seasons = frappe.get_all("Season Master", filters=conditions, fields=["name", "start_date", "end_date"])
+	seasons = frappe.get_all("Season Master", filters=conditions, fields=["name"])
 	if not seasons:
 		frappe.throw(
 			_("No Season Master for {0} in KMS Year {1}").format(crop_season or _("Kharif or Rabi"), kms_year)
@@ -113,23 +113,13 @@ def get_kms_season_masters(kms_year, crop_season=None):
 	return seasons
 
 
-def season_period(seasons):
-	"""(earliest Start Date, latest End Date) of the seasons; each None unless every season has it."""
-	starts = [getdate(s.start_date) for s in seasons if s.start_date]
-	ends = [getdate(s.end_date) for s in seasons if s.end_date]
-	return (
-		min(starts) if len(starts) == len(seasons) else None,
-		max(ends) if len(ends) == len(seasons) else None,
-	)
-
-
-def statement_period(start, end, movements):
-	"""Months of the statement: Season Master dates when set, else the months of the data; this
-	month when there is no data at all."""
+def statement_period(movements):
+	"""Months of the statement: the first to the last month with data; this month when there is no
+	data at all. (Season Master Start / End Date are never used.)"""
 	dates = [movement[0] for movement in movements]
 	today = getdate()
-	from_date = start or (min(dates) if dates else today)
-	to_date = end or (max(dates) if dates else today)
+	from_date = min(dates) if dates else today
+	to_date = max(dates) if dates else today
 	if to_date < from_date:
 		to_date = from_date
 	return getdate(get_first_day(from_date)), getdate(get_last_day(to_date))

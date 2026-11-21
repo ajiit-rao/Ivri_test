@@ -7,12 +7,16 @@ from frappe.utils import getdate
 from ivri_od.procurement.report.new_nbt_gunny_account.new_nbt_gunny_account import (
 	build_rows,
 	classify,
+	data_months,
 	district_label,
 	get_columns,
 	get_months,
 	pp_movements,
 	register_bags,
+	register_movements,
+	register_season_matches,
 	set_pp_bags,
+	validate_filters,
 )
 
 FROM_DATE = getdate("2025-11-01")
@@ -118,3 +122,63 @@ class TestNewNBTGunnyAccount(IntegrationTestCase):
 		set_pp_bags(mill, kms_year, "2025-11-01", "Receipts", bags=0)
 		self.assertEqual(len(pp_movements(mill, kms_year, getdate("2025-12-31"))), 1)
 		self.assertRaises(frappe.ValidationError, set_pp_bags, mill, kms_year, "2025-11-01", "Issue", "Nowhere", 5)
+
+	def test_filters_are_mill_kms_year_and_season(self):
+		mill = frappe.get_all("Mill Master", filters={"company": ["is", "set"]}, pluck="name", limit=1)
+		if not mill:
+			self.skipTest("Needs a Mill Master with a Company")
+		filters = frappe._dict(mill=mill[0], kms_year="25-26")
+		validate_filters(filters)  # no From / To Month needed; Season empty = Both
+		self.assertEqual((filters.season, filters.crop_season), ("Both", None))
+		filters = frappe._dict(mill=mill[0], kms_year="25-26", season="Rabi")
+		validate_filters(filters)
+		self.assertEqual(filters.crop_season, "Rabi")
+		self.assertRaises(frappe.ValidationError, validate_filters, frappe._dict(mill=mill[0], kms_year="25-26", season="Summer"))
+		self.assertRaises(frappe.ValidationError, validate_filters, frappe._dict(mill=mill[0]))
+
+	def test_months_are_those_of_the_data(self):
+		self.assertEqual(data_months(MOVEMENTS), (getdate("2025-10-01"), getdate("2026-01-31")))
+
+	def test_register_season_matches(self):
+		self.assertTrue(register_season_matches("kharif", "Kharif"))
+		self.assertFalse(register_season_matches("rabi", "Kharif"))
+		self.assertTrue(register_season_matches("rabi", None))  # Both
+		self.assertFalse(register_season_matches("summer", None))
+
+	def test_register_rows_by_kms_year_and_season(self):
+		"""Register rows carry the KMS Year and Season read from the SCMS page drop-downs."""
+		mill = "_T-NBT-MILL"
+
+		def add(kms, season, day, road):
+			cells = {"Date - A": day, "RECEIPT OF GUNNY (in Bags) - ROAD - C": str(road)}
+			if kms:
+				cells = {"KMS Year": kms, "Season": season, **cells}
+			frappe.get_doc(
+				{
+					"doctype": "Portal Record",
+					"site": "SCMS",
+					"section": "Gunny Stock Register Details",
+					"mill_id": mill,
+					"record_key": f"{kms}|{season}|{day}",
+					"row_data": frappe.as_json(cells),
+				}
+			).insert(ignore_permissions=True)
+
+		if not frappe.db.exists("Portal Site", "SCMS"):
+			self.skipTest("Needs the SCMS Portal Site")
+		add("2025-2026", "KHARIF", "15/12/2025", 100)
+		add("2025-2026", "RABI", "15/12/2025", 40)  # same date, other season
+		add("2024-2025", "KHARIF", "15/12/2024", 7)  # other KMS Year
+		add("", "", "16/12/2025", 999)  # read before the KMS Year / Season columns: left out
+		end = getdate("2999-12-31")
+
+		def receipts(crop_season):
+			missing = []
+			rows = register_movements(mill, None, end, kms_year=2025, crop_season=crop_season, without_season=missing)
+			return sum(bags for _d, column, _x, _t, bags in rows if column == "receipts"), len(missing)
+
+		self.assertEqual(receipts("Kharif"), (100, 1))
+		self.assertEqual(receipts("Rabi"), (40, 1))
+		self.assertEqual(receipts(None), (140, 1))
+		# Without a KMS Year (Gunny Stock Report Yearly): every row, as before.
+		self.assertEqual(sum(r[4] for r in register_movements(mill, None, end) if r[1] == "receipts"), 1146)

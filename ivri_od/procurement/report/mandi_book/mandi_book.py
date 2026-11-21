@@ -10,6 +10,7 @@ from frappe import _
 from frappe.utils import cint, flt
 
 from ivri_od.procurement.doctype.season_master.season_master import resolve_season_master_name
+from ivri_od.procurement.other_tp import other_tp_bags_of_truck
 from ivri_od.procurement.ppc_pass_metrics import ppc_display_name
 from ivri_od.procurement.grn_tp_fulfillment import (
 	actual_chhatni_status,
@@ -104,6 +105,13 @@ def get_columns(show_season: bool = False):
 			"width": 130,
 		},
 		{
+			"label": _("Total Other TP Qty"),
+			"fieldname": "total_other_tp_qty",
+			"fieldtype": "Float",
+			"precision": 3,
+			"width": 140,
+		},
+		{
 			"label": _("Gunny Type"),
 			"fieldname": "summary_gunny_type",
 			"fieldtype": "Data",
@@ -185,6 +193,7 @@ def get_columns(show_season: bool = False):
 		{"label": _("Load Wt"), "fieldname": "load_weight", "fieldtype": "Float", "precision": 3, "width": 105},
 		{"label": _("Tare Wt"), "fieldname": "tare_weight", "fieldtype": "Float", "precision": 3, "width": 105},
 		{"label": _("Gross Wt"), "fieldname": "gross_weight", "fieldtype": "Float", "precision": 3, "width": 105},
+		{"label": _("Other TP Qty"), "fieldname": "other_tp_qty", "fieldtype": "Float", "precision": 3, "width": 115},
 		{"label": _("Gunny Type"), "fieldname": "gunny_type", "fieldtype": "Data", "width": 120},
 		{"label": _("Gunny Wt"), "fieldname": "gunny_weight", "fieldtype": "Float", "precision": 3, "width": 105},
 		{"label": _("Deduction"), "fieldname": "deduction", "fieldtype": "Float", "precision": 3, "width": 105},
@@ -255,11 +264,15 @@ def get_data(filters):
 
 		rst_lines = _rst_lines(docs, wbm_by_name, bags_by_wbm)
 		total_gross_weight = flt(sum(line["gross_weight"] for line in rst_lines), 3)
+		# Trucks that also carried other TPs: their Qty is in the truck's Gross Wt but not this TP's.
+		total_other_tp_qty = flt(sum(flt(line.get("other_tp_qty")) for line in rst_lines), 3)
 		total_gunny_weight = flt(sum(line["gunny_weight"] for line in rst_lines), 3)
 		total_deduction_received = flt(sum(line["deduction"] for line in rst_lines), 3)
 		# Actual chhatni from saved Chhatni records of this pass (Pass Unique Key = TP + PPC + season).
-		# Total Qty Received = Total Gross Wt - Total Gunny Wt - Total Deduction Received.
-		total_received = flt(max(total_gross_weight - total_gunny_weight - total_deduction_received, 0.0), 3)
+		# Total Qty Received = Total Gross Wt - Total Other TP Qty - Total Gunny Wt - Total Deduction Received.
+		total_received = flt(
+			max(total_gross_weight - total_other_tp_qty - total_gunny_weight - total_deduction_received, 0.0), 3
+		)
 
 		chhatni_assigned = _assigned_chhatni(docs)
 		total_deduction = flt(sum(flt(doc.deduction) for doc in docs), 3)
@@ -298,6 +311,7 @@ def get_data(filters):
 			"tp_quantity": tp_qty,
 			"total_gross_weight": total_gross_weight,
 			"total_gross_wt": total_gross_weight,
+			"total_other_tp_qty": total_other_tp_qty or None,
 			"summary_gunny_type": " / ".join(gunny_types),
 			"total_gunny_weight": total_gunny_weight,
 			"total_gunny_wt": total_gunny_weight,
@@ -340,6 +354,7 @@ def get_data(filters):
 			"tp_key": key,
 			"tp_quantity": None,
 			"total_gross_weight": None,
+			"total_other_tp_qty": None,
 			"total_gross_wt": None,
 			"summary_gunny_type": "",
 			"total_gunny_weight": None,
@@ -594,23 +609,25 @@ def _rst_lines(docs, wbm_by_name: dict, bags_by_wbm: dict) -> list[dict]:
 		split_qty = doc.get("split_qty")
 		other_tp_qty = flt(doc.get("other_tp_qty"), 3) if split_qty is None else 0.0
 		own_qty = split_qty
-		share_qty = None
-		base_qty = gross_wt - gunny_weight - deduction
-		if other_tp_qty > 0 and base_qty - flt(net_wt) > 0.001:
-			# Every weighment of a truck with other TPs holds the whole truck's weights; this TP keeps its
-			# Net Weight. Its share of the truck: the truck's own TP its Net Weight, a split TP its Qty
-			# (its own Deduction then shows in the line's Deduction).
-			own_qty = max(flt(net_wt), 0.0)
-			if wbm.get("split_from_weighment") and flt(wbm.get("split_qty")) > 0:
-				share_qty = flt(wbm.get("split_qty"), 3)
-			if flt(wbm.get("rst_net_weight")) > 0:
-				base_qty = flt(wbm.get("rst_net_weight"), 3)
 		ratio = 1
-		if own_qty is not None:
-			# This RST is shared by several TP Nos: gross, gunny and bags in proportion to this TP's share,
-			# deduction so that gross - gunny - deduction is exactly its Net Weight.
-			share = own_qty if share_qty is None else share_qty
-			ratio = flt(share) / base_qty if base_qty > 0 else 0.0
+		if other_tp_qty > 0:
+			# The truck also carried other TPs. Load, Tare and Gross stay the truck's readings
+			# (Gross = Load - Tare); Other TP Qty is the part of that Gross that belongs to the other TPs.
+			# Gunny Weight and Deduction are this TP's own (its GRN Note), so
+			# Net Wt = Gross - Other TP Qty - Gunny - Deduction.
+			gunny_weight = flt(doc.gunny_weight, 3)
+			deduction = flt(doc.deduction, 3)
+			net_wt = flt(doc.net_weight, 3)
+			# Bags: an other TP has its own (its weighment's Bag Type table, 0 until given in Edit); the
+			# truck's own TP has the truck's bags less the bags given to the other TPs.
+			other_jute, other_plastic = other_tp_bags_of_truck(wbm_name)
+			jute, plastic = max(jute - other_jute, 0), max(plastic - other_plastic, 0)
+			total_bags = jute + plastic
+		elif own_qty is not None:
+			# This RST is split over several TP Nos in the Mandi Book (attach TP No): gross, gunny and bags in
+			# proportion to this TP's share, deduction so that gross - gunny - deduction is exactly its Qty.
+			base_qty = gross_wt - gunny_weight - deduction
+			ratio = flt(own_qty) / base_qty if base_qty > 0 else 0.0
 			load_wt, tare_wt = flt(load_wt * ratio, 3), flt(tare_wt * ratio, 3)
 			gross_wt, gunny_weight = flt(gross_wt * ratio, 3), flt(gunny_weight * ratio, 3)
 			deduction = flt(gross_wt - gunny_weight - flt(own_qty), 3)
@@ -622,6 +639,8 @@ def _rst_lines(docs, wbm_by_name: dict, bags_by_wbm: dict) -> list[dict]:
 			{
 				"split_qty": flt(split_qty, 3) if split_qty is not None else None,
 				"other_tp_qty": other_tp_qty or None,
+				# An other TP of a truck (its own weighment): its bags can be given in Edit mode.
+				"is_other_tp": 1 if (wbm.get("split_from_weighment") or "").strip() else 0,
 				# RST shared with other TPs: this TP's Qty (Gross - Other TPs of its weighment).
 				"rst_tp_qty": (flt(wbm.get("tp_qty"), 3) or None) if other_tp_qty > 0 else None,
 				"grn_no": (doc.grn_no or doc.name or "").strip(),
@@ -753,6 +772,7 @@ def _grn_fields_dict(line: dict) -> dict:
 		"split_qty": line.get("split_qty"),
 		"other_tp_qty": line.get("other_tp_qty"),
 		"rst_tp_qty": line.get("rst_tp_qty"),
+		"is_other_tp": line.get("is_other_tp") or 0,
 	}
 
 
@@ -868,7 +888,9 @@ def rst_net_qty(grn_name: str) -> float:
 	if not lines:
 		return 0.0
 	line = lines[0]
-	return flt(line["gross_weight"] - line["gunny_weight"] - line["deduction"], 3)
+	return flt(
+		line["gross_weight"] - flt(line.get("other_tp_qty")) - line["gunny_weight"] - line["deduction"], 3
+	)
 
 
 def _split_context(grn_name: str):

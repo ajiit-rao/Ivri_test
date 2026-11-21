@@ -62,7 +62,7 @@
 <div class="nbt-gunny-account">
 	<div class="heading">{%= company %}</div>
 	<div class="heading">
-		NEW NBT GUNNY ACCOUNT FOR KMS {%= frappe.utils.escape_html(kms_label) %}
+		NEW NBT GUNNY ACCOUNT FOR KMS {%= frappe.utils.escape_html(kms_label) %}{% if (filters.season && filters.season !== "Both") { %}, {%= frappe.utils.escape_html(filters.season) %}{% } %}
 	</div>
 
 	<table class="statement">

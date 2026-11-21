@@ -1,10 +1,13 @@
 # Copyright (c) 2026, Profezzo and contributors
 """New NBT Gunny Account: monthly OB, receipts, other, issues by District and CB of gunny bags, OSCSC and PP.
 
-Filters: Mill, KMS Year (those with Transit Passes of the mill), From Month and To Month.
+Filters: Mill, KMS Year (those with Transit Passes of the mill) and Season (Both / Kharif / Rabi).
+No From / To Month: the months are the first to the last month with data.
 OSCSC:
 - Receipts: SCMS Gunny Stock Register Details of the mill, columns C + D + E (Road, Rake, Concor),
-  by its Date - A month.
+  by its Date - A month. Only the rows read with that KMS Year and Season on the SCMS page (the KMS Year
+  and Season columns the agent saves from its drop-downs); rows read before those columns existed have
+  none and are not counted (the report says how many).
 - Other: the same rows, columns F + G + H + I + J (transfers).
 - Issue <District>: lots delivered x No. of Bags per Lot (Rice Lot Quantity). Lots delivered: DCRO
   DC Transit Challan rows with an Accepted Date (by that month; District of the DC in View DC) and
@@ -12,11 +15,13 @@ OSCSC:
   One Issue column per District the mill procured from in the KMS Year (Districts of the PPCs of
   its Transit Passes, see Stock Account for Paddy), 0 while nothing is delivered there yet; also
   for a District with lots or PP bags but no Transit Pass.
-PP: typed in the report (click a PP cell of a month), saved in Gunny PP Entry.
+  Season Kharif / Rabi: only the lots of DCs whose Season in DCRO View DC is that season (as in Rice
+  Stock Report).
+PP: typed in the report (click a PP cell of a month), saved in Gunny PP Entry. It has no Season, so it
+counts for every Season.
 Total Receipts = OB + Receipts + Other; Total Issue = all Districts; CB = Total Receipts - Total Issue.
-OB of a month = CB of the month before; movements of the KMS Year before From Month go to the OB
-of the first month (receipts in, issues out). Total row: no OB, Total Receipts = Receipts + Other,
-CB of the last month."""
+OB of a month = CB of the month before (the first month starts at 0). Total row: no OB,
+Total Receipts = Receipts + Other, CB of the last month."""
 
 from __future__ import annotations
 
@@ -30,6 +35,9 @@ from frappe.utils import cint, get_first_day, get_last_day, getdate
 from ivri_od.procurement.dcro_paddy_release import district_names
 from ivri_od.procurement.portal_report import _load
 from ivri_od.procurement.report.stock_account_for_paddy.stock_account_for_paddy import (
+	BOTH_SEASONS,
+	CROP_SEASONS,
+	NO_END,
 	dcro_kms_year,
 	get_kms_seasons,
 	get_kms_years,
@@ -44,6 +52,9 @@ RECEIPTS = ("receipts", "other")
 # Gunny Stock Register Details: column letters at the end of the header ("... - ROAD - C").
 REGISTER_SECTION = "Gunny Stock Register Details"
 REGISTER_DATE_COLUMN = "Date - A"
+# Saved from the SCMS page's drop-downs (#ddlKmsYear, #ddlSeason; the section's Page Filter Columns).
+REGISTER_KMS_COLUMN = "KMS Year"
+REGISTER_SEASON_COLUMN = "Season"
 REGISTER_LETTERS = {"receipts": ("C", "D", "E"), "other": ("F", "G", "H", "I", "J")}
 REGISTER_LETTER = re.compile(r"-\s*([A-Z])\s*$")
 # DCRO DC Transit Challan, its District from View DC (DC Order No = DC Code(RRC)).
@@ -62,7 +73,8 @@ PP_ACCOUNTS = {"receipts": "Receipts", "other": "Other"}
 
 def execute(filters=None):
 	filters = frappe._dict(filters or {})
-	from_date, to_date = validate_filters(filters)
+	validate_filters(filters)
+	to_date = NO_END
 
 	if filters.kms_year not in get_kms_years(filters.mill):
 		# No Transit Pass of the mill in the KMS Year: no statement.
@@ -70,34 +82,46 @@ def execute(filters=None):
 			filters.mill, filters.kms_year
 		)
 
-	movements = get_movements(filters, to_date)
+	movements, without_season = get_movements(filters, to_date)
 	districts = procured_districts(filters.mill, get_kms_seasons(filters.kms_year), to_date)
 	districts = sorted(districts | {district for _date, column, district, _type, _bags in movements if column == "issue"})
+	from_date, to_date = data_months(movements)
 	opening, by_month = classify(movements, from_date)
-	return get_columns(districts), build_rows(get_months(from_date, to_date), districts, opening, by_month)
+	message = None
+	if without_season:
+		message = _(
+			"{0} Gunny Stock Register Details rows of mill {1} have no KMS Year / Season and are not counted. "
+			"Read the SCMS Gunny Stock Register page again with the PPAS Agent (KMS Year and Season set)."
+		).format(without_season, filters.mill)
+	return get_columns(districts), build_rows(get_months(from_date, to_date), districts, opening, by_month), message
+
+
+def data_months(movements):
+	"""(first day of the first month, last day of the last month) with data; this month without data."""
+	dates = [getdate(movement[0]) for movement in movements if movement[0]]
+	today = getdate()
+	return getdate(get_first_day(min(dates) if dates else today)), getdate(get_last_day(max(dates) if dates else today))
 
 
 def validate_filters(filters):
-	"""Same checks as Stock Account for Paddy, without its District: (first day of From Month, last day of To Month)."""
+	"""Mill, KMS Year and Season (Both / Kharif / Rabi). Sets filters.crop_season (None for Both) and
+	filters.company (printed in the heading)."""
 	for fieldname, label in (
 		("mill", _("Mill Name")),
 		("kms_year", _("KMS Year")),
-		("from_month", _("From Month")),
-		("to_month", _("To Month")),
 	):
 		if not filters.get(fieldname):
 			frappe.throw(_("{0} is mandatory").format(label))
+	season = (filters.get("season") or BOTH_SEASONS).strip()
+	if season not in (BOTH_SEASONS, *CROP_SEASONS):
+		frappe.throw(_("Season must be Both, Kharif or Rabi"))
+	filters.season = season
+	filters.crop_season = None if season == BOTH_SEASONS else season
 
 	# The mill's company is printed in the heading.
 	filters.company = frappe.db.get_value("Mill Master", filters.mill, "company")
 	if not filters.company:
 		frappe.throw(_("Set the Company in Mill Master {0}").format(filters.mill))
-
-	from_date = getdate(get_first_day(filters.from_month))
-	to_date = getdate(get_last_day(filters.to_month))
-	if from_date > to_date:
-		frappe.throw(_("From Month must be before To Month"))
-	return from_date, to_date
 
 
 def issue_key(district):
@@ -118,34 +142,53 @@ def get_columns(districts):
 
 
 def get_movements(filters, to_date):
-	"""Gunny bag movements of the mill and KMS Year up to To Month, as (date, column, District,
-	bag type, bags): column "receipts", "other" or "issue" (District set only for "issue")."""
+	"""(movements, register rows without KMS Year / Season). Movements: gunny bags of the mill, KMS Year
+	and Season, as (date, column, District, bag type, bags): column "receipts", "other" or "issue"
+	(District set only for "issue"). Season Master Start / End Date are never used."""
+	from ivri_od.procurement.report.rice_stock_report.rice_stock_report import get_season_dcs
+
 	year = cint(season_master_year(filters.kms_year))
-	movements = register_movements(filters.mill, kms_start(year), to_date)
-	movements += issue_movements(filters.mill, year, to_date)
+	without_season = []
+	movements = register_movements(
+		filters.mill, None, to_date, kms_year=year, crop_season=filters.crop_season, without_season=without_season
+	)
+	season_dcs, _without = get_season_dcs(filters.mill, filters.crop_season)
+	movements += issue_movements(filters.mill, year, to_date, season_dcs=season_dcs)
 	movements += pp_movements(filters.mill, filters.kms_year, to_date)
-	return movements
+	return movements, len(without_season)
 
 
-def kms_start(year):
-	"""First Start Date of the KMS Year's Season Masters; None when none is set. The register has
-	no KMS Year, so its rows before this date are left out."""
-	dates = frappe.get_all("Season Master", filters={"year": str(year), "start_date": ["is", "set"]}, pluck="start_date")
-	return min(dates) if dates else None
+def register_movements(mill, from_date, to_date, kms_year=None, crop_season=None, without_season=None):
+	"""OSCSC receipts and other receipts from the Gunny Stock Register Details rows (the Total row is skipped).
 
-
-def register_movements(mill, from_date, to_date):
-	"""OSCSC receipts and other receipts from the Gunny Stock Register Details rows (the Total row is skipped)."""
+	With ``kms_year`` (first year, e.g. 2025): only the rows of that KMS Year and of ``crop_season``
+	(Kharif / Rabi; None = both), from their KMS Year and Season columns; a row without them is left out
+	and added to the ``without_season`` list."""
 	movements = []
 	for record in _portal_rows("SCMS", REGISTER_SECTION, mill):
 		cells = _load(record.row_data)
 		row_date = parse_portal_date(cells.get(REGISTER_DATE_COLUMN))
 		if not row_date or row_date > to_date or (from_date and row_date < from_date):
 			continue
+		if kms_year:
+			row_kms = dcro_kms_year(cells.get(REGISTER_KMS_COLUMN))
+			row_season = (cells.get(REGISTER_SEASON_COLUMN) or "").strip().casefold()
+			if not row_kms or not row_season:
+				if without_season is not None:
+					without_season.append(row_date)
+				continue
+			if row_kms != kms_year or not register_season_matches(row_season, crop_season):
+				continue
 		for column, bags in register_bags(cells).items():
 			if bags:
 				movements.append((row_date, column, "", "oscsc", bags))
 	return movements
+
+
+def register_season_matches(row_season, crop_season):
+	"""The row's Season (e.g. "KHARIF") is ``crop_season``, or Kharif / Rabi for Both (None)."""
+	seasons = [crop_season] if crop_season else list(CROP_SEASONS)
+	return any(row_season.startswith(season.casefold()) for season in seasons)
 
 
 def register_bags(cells):
@@ -158,9 +201,12 @@ def register_bags(cells):
 	return {column: sum(by_letter.get(letter, 0) for letter in letters) for column, letters in REGISTER_LETTERS.items()}
 
 
-def issue_movements(mill, year, to_date):
+def issue_movements(mill, year, to_date, season_dcs=None):
 	"""OSCSC issues by District: one lot (No. of Bags per Lot) per accepted DC Transit Challan row
-	(District of its DC in View DC) and per accepted Lot Search row (its District)."""
+	(District of its DC in View DC) and per accepted Lot Search row (its District).
+	``season_dcs``: DC numbers of one season (View DC); None = every DC (Both seasons)."""
+	from ivri_od.procurement.report.rice_stock_report.rice_stock_report import _dc_key
+
 	bags_per_lot = cint(frappe.db.get_single_value("Rice Lot Quantity", "bags_per_lot"))
 	districts = district_names()
 	lots = []
@@ -172,6 +218,8 @@ def issue_movements(mill, year, to_date):
 	for record in _portal_rows("DCRO", TRANSIT_SECTION, mill):
 		cells = _load(record.row_data)
 		if dcro_kms_year(cells.get("KMS Year")) == year:
+			if season_dcs is not None and _dc_key(cells.get(TRANSIT_DC_COLUMN)) not in season_dcs:
+				continue
 			district = dc_district.get((cells.get(TRANSIT_DC_COLUMN) or "").strip())
 			lots.append((parse_portal_date(cells.get(TRANSIT_DATE_COLUMN)), district))
 
@@ -179,6 +227,8 @@ def issue_movements(mill, year, to_date):
 		cells = _load(record.row_data)
 		accepted = (cells.get("Challan Status") or "").strip().lower() == LOT_SEARCH_STATUS
 		if accepted and dcro_kms_year(cells.get("KMS Year")) == year:
+			if season_dcs is not None and _dc_key(cells.get("DC No.")) not in season_dcs:
+				continue
 			lots.append((parse_portal_date(cells.get(LOT_SEARCH_DATE_COLUMN)), cells.get("District")))
 
 	if lots and not bags_per_lot:

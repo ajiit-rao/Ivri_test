@@ -6,10 +6,9 @@ from collections import defaultdict
 
 import frappe
 from frappe import _
-from frappe.utils import flt, getdate
+from frappe.utils import flt
 
 from ivri_od.procurement.doctype.season_master.season_master import (
-	get_season_for_date,
 	resolve_season_master_name,
 )
 from ivri_od.procurement.ppc_pass_metrics import (
@@ -234,12 +233,18 @@ def get_data(filters):
 
 	# Physical Paddy = Net Weight (QT) of the weighments (Weigh Bridge Measurement), grouped by PPC.
 	# The PPC is the weighment's Party Name (a weighment with a Transit Pass and no Party Name takes the
-	# PPC of its pass). The season is the pass season, else the Season Master covering the weighment date.
+	# PPC of its pass). The season is the pass season, else the Season Code of its RST Details (the only place
+	# that uses the Season Master Start / End Date).
 	rst_mill = {}
 	if mill_filter:
 		rst_mill = dict(frappe.get_all("RST Details", fields=["name", "mill_name"], as_list=True))
 	ppc_by_party: dict[str, object] = {}
-	season_by_date: dict[object, str] = {}
+	rst_season_code = dict(frappe.get_all("RST Details", fields=["name", "season_code"], as_list=True))
+	season_by_code = {
+		(code or "").strip().upper(): name
+		for name, code in frappe.get_all("Season Master", fields=["name", "season_code"], as_list=True)
+		if (code or "").strip()
+	}
 	for wbm in frappe.get_all(
 		"Weigh Bridge Measurement",
 		fields=["name", "party_name", "pass_unique_key", "net_weight", "date", "demo_rst_data"],
@@ -255,11 +260,8 @@ def get_data(filters):
 			ppc_by_party[party] = resolve_to_ppc_master(party) if party else None
 		p = ppc_by_party[party] or tp_meta.get("ppc_doc")
 		s = tp_meta.get("season", "")
-		if not s and wbm.date:
-			day = getdate(wbm.date)
-			if day not in season_by_date:
-				season_by_date[day] = get_season_for_date(day) or ""
-			s = season_by_date[day]
+		if not s and wbm.demo_rst_data:
+			s = season_by_code.get((rst_season_code.get(wbm.demo_rst_data) or "").strip().upper(), "")
 		if not s or not p:
 			continue
 		aggregated[(s, p.name)]["physical_paddy"] += flt(wbm.net_weight)

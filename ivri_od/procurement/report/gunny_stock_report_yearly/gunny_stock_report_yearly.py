@@ -20,8 +20,8 @@ and one District account. Filters as Stock Account for Paddy.
   New Bags Remained Unused = OSCSC OB + OSCSC + Tr. Receipt - Tr. Issue - New Bags Used for CMR.
 - Old Bags Carried Over from PY = Old Bags Remained Unused of the month before;
   Old Bags Remained Unused = Carried Over + Procured from CKMS - Used in Current KMS.
-Balances run from the KMS Year start (Season Master Start Date), so the first month shown carries
-the months before From Month. Total row: sums of Qtl of Paddy Procurement, New Bags Used for CMR and
+Balances run from the first month with data (Season Master Start / End Date are not used), so the
+first month shown carries the months before From Month. Total row: sums of Qtl of Paddy Procurement, New Bags Used for CMR and
 Old Bags Used in Current KMS; balance columns blank. Columns 10-11 are grouped under "No of old bags
 in stock" in the print (gunny_stock_report_yearly.html)."""
 
@@ -35,7 +35,6 @@ from frappe.utils import cint, flt, get_first_day, getdate
 
 from ivri_od.procurement.report.new_nbt_gunny_account.new_nbt_gunny_account import (
 	issue_movements,
-	kms_start,
 	register_movements,
 )
 from ivri_od.procurement.report.stock_account_for_paddy.stock_account_for_paddy import (
@@ -72,9 +71,9 @@ def execute(filters=None):
 			filters.mill, filters.kms_year
 		)
 
-	start = kms_start(cint(season_master_year(filters.kms_year)))
-	first_month = getdate(get_first_day(min(start, from_date) if start else from_date))
-	movements = get_movements(filters, start, to_date)
+	movements = get_movements(filters, None, to_date)
+	# Balances start at the first month with data (or From Month when that is earlier).
+	first_month = getdate(get_first_day(min([getdate(from_date), *movements.keys()])))
 	rows = build_rows(get_months(first_month, to_date), movements)
 	# Months before From Month only carry their balances into the first month shown.
 	shown = rows[len(get_months(first_month, from_date)) - 1 :]

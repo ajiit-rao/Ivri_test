@@ -104,18 +104,13 @@ frappe.query_reports["New NBT Gunny Account"] = {
 			description: __("Kharif and Rabi of the year; only years with Transit Passes of the mill"),
 		},
 		{
-			fieldname: "from_month",
-			label: __("From Month"),
-			fieldtype: "Date",
+			// Months shown: the first to the last month with data (no From / To Month).
+			fieldname: "season",
+			label: __("Season"),
+			fieldtype: "Select",
+			options: ["Both", "Kharif", "Rabi"],
+			default: "Both",
 			reqd: 1,
-			default: frappe.datetime.month_start(),
-		},
-		{
-			fieldname: "to_month",
-			label: __("To Month"),
-			fieldtype: "Date",
-			reqd: 1,
-			default: frappe.datetime.month_end(),
 		},
 		{
 			fieldname: "company",

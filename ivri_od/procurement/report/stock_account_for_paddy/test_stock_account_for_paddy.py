@@ -15,7 +15,6 @@ from ivri_od.procurement.report.stock_account_for_paddy.stock_account_for_paddy 
 	kms_year_label,
 	season_code_from_pass_key,
 	season_master_year,
-	season_period,
 	statement_period,
 	tp_receipts,
 	validate_filters,
@@ -205,21 +204,10 @@ class TestStockAccountForPaddy(IntegrationTestCase):
 			# No From / To Month needed.
 			self.assertRaises(frappe.ValidationError, validate_season_filters, frappe._dict(mill="MILL", kms_year="25-26"))
 
-	def test_season_period_uses_season_master_dates_only_when_all_set(self):
-		kharif = frappe._dict(start_date="2025-10-01", end_date="2026-03-31")
-		rabi = frappe._dict(start_date="2026-04-01", end_date="2026-09-30")
-		self.assertEqual(season_period([kharif]), (getdate("2025-10-01"), getdate("2026-03-31")))
-		self.assertEqual(season_period([kharif, rabi]), (getdate("2025-10-01"), getdate("2026-09-30")))
-		self.assertEqual(season_period([kharif, frappe._dict(start_date=None, end_date=None)]), (None, None))
-
-	def test_statement_period_from_data_when_no_season_dates(self):
+	def test_statement_period_is_always_from_the_data(self):
+		# Season Master Start / End Date are never used: the months are those of the data.
 		movements = tp_receipts(PASSES)  # 20-10-2025 .. 04-01-2026
-		self.assertEqual(statement_period(None, None, movements), (getdate("2025-10-01"), getdate("2026-01-31")))
-		# Season Master dates win over the data.
-		self.assertEqual(
-			statement_period(getdate("2025-11-15"), getdate("2025-12-10"), movements),
-			(getdate("2025-11-01"), getdate("2025-12-31")),
-		)
+		self.assertEqual(statement_period(movements), (getdate("2025-10-01"), getdate("2026-01-31")))
 		# No data: this month only.
-		start, end = statement_period(None, None, [])
+		start, end = statement_period([])
 		self.assertEqual((start, end), (getdate(frappe.utils.get_first_day(getdate())), getdate(frappe.utils.get_last_day(getdate()))))

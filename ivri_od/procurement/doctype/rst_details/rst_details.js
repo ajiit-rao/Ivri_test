@@ -270,3 +270,22 @@ function calculate_total_bags(frm) {
 	);
 	frm.set_value("total_bags", total);
 }
+
+// Other TPs in this RST: Net Weight = Gross Weight - Gunny Weight - Deduction, shown while typing
+// (the server works it out again on save).
+function other_tp_row_net(frm, cdt, cdn) {
+	const row = locals[cdt][cdn];
+	frappe.model.set_value(cdt, cdn, "net_weight", flt(flt(row.qty) - flt(row.gunny_weight) - flt(row.deduction), 3));
+	if (frm.doc.doctype !== "RST Details") return;
+	frm.set_value("other_tp_qty", flt((frm.doc.other_tp_details || []).reduce((sum, r) => sum + flt(r.qty), 0), 3));
+}
+
+frappe.ui.form.on("Weighment Other TP", {
+	qty: other_tp_row_net,
+	gunny_weight: other_tp_row_net,
+	deduction: other_tp_row_net,
+	other_tp_details_remove(frm) {
+		if (frm.doc.doctype !== "RST Details") return;
+		frm.set_value("other_tp_qty", flt((frm.doc.other_tp_details || []).reduce((sum, r) => sum + flt(r.qty), 0), 3));
+	},
+});

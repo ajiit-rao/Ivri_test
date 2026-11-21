@@ -3,10 +3,10 @@
 miller for one KMS Year, from the average paddy stock the mill held each month.
 
 Filters: Miller Name (Mill), KMS Year, Season (Both / Kharif / Rabi) and District; no From / To Month.
-One row per month: the Season Master Start Date - End Date of the chosen season(s), else the first to
-the last month with data (as in Stock Account for Paddy). Movements before it make the Opening Balance.
-Season: Transit Passes and Issue for Milling of that season only; Mill Paddy Transfer (no season of its
-own) by Transfer Date within the season's Season Master dates (every transfer when they are not set).
+One row per month: the first to the last month with data (as in Stock Account for Paddy).
+Season: Transit Passes and Issue for Milling of that season only. Mill Paddy Transfer has no KMS Year or
+Season of its own, so every transfer of the mill and District is counted.
+(Season Master Start / End Date are not used: only RST Details uses them, for its Season Code.)
 
 Columns of a month:
 - Opening Balance: Closing Balance of the month before (November: stock before 1 November).
@@ -40,7 +40,6 @@ from ivri_od.procurement.report.stock_account_for_paddy.stock_account_for_paddy 
 	get_message,
 	get_months,
 	get_transit_passes,
-	season_period,
 	statement_period,
 	tp_receipts,
 )
@@ -58,20 +57,15 @@ def execute(filters=None):
 	filters = frappe._dict(filters or {})
 	crop_season = validate_filters(filters)
 	seasons = get_kms_season_masters(filters.kms_year, crop_season)
-	start, end = season_period(seasons)
 
-	entries, skipped_passes = get_entries(filters, seasons, crop_season, start, end)
-	from_date, to_date = statement_period(start, end, entries)
+	entries, skipped_passes = get_entries(filters, seasons, crop_season)
+	from_date, to_date = statement_period(entries)
 	opening, movements = split_entries(entries, from_date, to_date)
 	rows = build_rows(get_months(from_date, to_date), opening, movements)
 	summary = get_summary(rows, RATE_PER_QTL_PER_MONTH)
 	data = [*rows, get_total_row(rows)]
 
 	messages = [get_message(skipped_passes, frappe._dict(mill=filters.mill))]
-	if crop_season and not (start and end):
-		messages.append(
-			_("Season Master {0} has no Start / End Date: every Mill Paddy Transfer is counted.").format(crop_season)
-		)
 	message = " ".join(m for m in messages if m) or None
 	return get_columns(), data, message, None, get_report_summary(summary)
 
@@ -103,24 +97,20 @@ def get_kms_months(kms_year) -> list[date]:
 	return [getdate(add_months(start, i)) for i in range(12)]
 
 
-def get_entries(filters, seasons, crop_season, start=None, end=None):
+def get_entries(filters, seasons, crop_season):
 	"""THE ONLY PLACE THAT READS DATA.
 
 	Returns ``(entries, skipped_passes)``:
-	- ``entries``: ``[(date, "transfer" / "pacs" / "issue", qty)]`` of the season(s), up to ``end``.
+	- ``entries``: ``[(date, "transfer" / "pacs" / "issue", qty)]`` of the season(s).
 	- ``skipped_passes``: Transit Passes of the mill not counted (PPC not in PPC Master / no District).
 	"""
-	to_date = end or NO_END
+	to_date = NO_END
 	paddy_filters = frappe._dict(mill=filters.mill, kms_year=filters.kms_year, paddy_account=filters.district)
 
 	passes, skipped_passes = get_transit_passes(paddy_filters, [s.name for s in seasons], to_date)
 	entries = [(day, "pacs", qty) for day, _column, qty in tp_receipts(passes)]  # PACS + WSHG procured
-	# A transfer has no season: one season's report takes the transfers within its Season Master dates.
-	entries += [
-		entry
-		for entry in get_transfers(filters, to_date)
-		if not (crop_season and start and end) or start <= entry[0] <= end
-	]
+	# A transfer has no KMS Year or Season of its own: every transfer of the mill and District counts.
+	entries += get_transfers(filters, to_date)
 	entries += [
 		(day, ISSUE, qty)
 		for day, _column, qty in get_issue_for_milling(paddy_filters, to_date, crop_season=crop_season)

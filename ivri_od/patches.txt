@@ -182,3 +182,4 @@ ivri_od.patches.v1_0.rst_details_list_status_column
 ivri_od.patches.v1_0.rst_details_list_transaction_type_column
 ivri_od.patches.v1_0.wbm_bag_type_and_condition
 ivri_od.patches.v1_0.rename_rice_dispatch_to_cmr_report
+ivri_od.patches.v1_0.rst_other_tps_from_weighment
