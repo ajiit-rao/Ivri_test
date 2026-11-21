@@ -11,6 +11,11 @@
   "ppc_name",
   "mill_no",
   "qty",
+  "gunny_weight",
+  "deduction",
+  "net_weight",
+  "jute_bags",
+  "plastic_bags",
   "pass_unique_key",
   "weighment"
  ],
@@ -20,9 +25,7 @@
    "fieldname": "season",
    "fieldtype": "Link",
    "options": "Season Master",
-   "label": "Season",
-   "in_list_view": 1,
-   "columns": 1
+   "label": "Season"
   },
   {
    "fieldname": "transit_pass_no",
@@ -30,7 +33,7 @@
    "label": "Other TP No",
    "reqd": 1,
    "in_list_view": 1,
-   "columns": 2
+   "columns": 1
   },
   {
    "fieldname": "ppc_name",
@@ -38,7 +41,7 @@
    "options": "PPC Master",
    "label": "PPC Name",
    "in_list_view": 1,
-   "columns": 2
+   "columns": 1
   },
   {
    "fieldname": "mill_no",
@@ -46,17 +49,62 @@
    "options": "Mill Master",
    "label": "Mill No",
    "in_list_view": 1,
-   "columns": 2
+   "columns": 1
   },
   {
    "fieldname": "qty",
    "fieldtype": "Float",
-   "label": "Qty (QT)",
+   "label": "Gross Weight (QT)",
    "reqd": 1,
    "non_negative": 1,
    "precision": "3",
    "in_list_view": 1,
-   "columns": 2
+   "columns": 1
+  },
+  {
+   "fieldname": "gunny_weight",
+   "fieldtype": "Float",
+   "label": "Gunny Weight (QT)",
+   "non_negative": 1,
+   "precision": "3",
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "deduction",
+   "fieldtype": "Float",
+   "label": "Deduction (QT)",
+   "non_negative": 1,
+   "precision": "3",
+   "in_list_view": 1,
+   "columns": 1
+  },
+  {
+   "fieldname": "net_weight",
+   "fieldtype": "Float",
+   "label": "Net Weight (QT)",
+   "precision": "3",
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 1,
+   "description": "Gross Weight - Gunny Weight - Deduction"
+  },
+  {
+   "fieldname": "jute_bags",
+   "fieldtype": "Int",
+   "label": "Jute Bags",
+   "non_negative": 1,
+   "in_list_view": 1,
+   "columns": 1,
+   "description": "Bags of this TP. The truck's own TP keeps the rest of the truck's bags."
+  },
+  {
+   "fieldname": "plastic_bags",
+   "fieldtype": "Int",
+   "label": "Plastic Bags",
+   "non_negative": 1,
+   "in_list_view": 1,
+   "columns": 1
   },
   {
    "fieldname": "pass_unique_key",
@@ -72,12 +120,12 @@
    "label": "Weighment for this TP",
    "read_only": 1,
    "in_list_view": 1,
-   "columns": 2,
+   "columns": 1,
    "no_copy": 1
   }
  ],
  "links": [],
- "modified": "2026-11-11 18:00:00.000000",
+ "modified": "2026-11-20 15:00:00.000000",
  "modified_by": "Administrator",
  "module": "Procurement",
  "name": "Weighment Other TP",

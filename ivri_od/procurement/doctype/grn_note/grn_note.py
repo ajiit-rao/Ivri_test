@@ -23,7 +23,7 @@ GRN_TYPE_PRIVATE = "Private Deal"
 from ivri_od.procurement.doctype.season_mapping.season_mapping import get_chhatni_from_season_mapping
 from ivri_od.procurement.doctype.season_master.season_master import resolve_season_master_name
 from ivri_od.procurement.mill_gate import get_qc_sl_no, normalize_vehicle_no
-from ivri_od.procurement.other_tp import apply_other_tps_to_grn
+from ivri_od.procurement.other_tp import apply_other_tps_to_grn, other_tp_bags_of_truck
 from ivri_od.procurement.grn_tp_fulfillment import (
 	chhatni_fulfillment_status,
 	clear_tp_fulfillment_fields,
@@ -139,7 +139,9 @@ class GRNNote(Document):
 					title=_("Duplicate GRN Note"),
 				)
 
-		if rst_no and cint(self.is_local_procurement):
+		# RST No can repeat (another Party Name or TP No), and each such RST has its own weighment.
+		# So a GRN linked to a weighment is checked by that weighment above, not by RST No.
+		if rst_no and cint(self.is_local_procurement) and not wbm_name:
 			dup = frappe.db.get_value(
 				"GRN Note",
 				{**filters, "rst_no": rst_no, "is_local_procurement": 1},
@@ -607,11 +609,11 @@ class GRNNote(Document):
 		self.gross_weight = flt(wbm.gross_weight)
 		self.tare_weight = flt(wbm.tare_weight)
 		self.net_weight = flt(wbm.net_weight)
-		# Other TPs in the same truck: their Qty is not this TP's (see procurement/other_tp.py).
-		apply_other_tps_to_grn(self, wbm_name, wbm.net_weight)
 		self.deduction = flt(wbm.deduction)
 		self.gunny_type = wbm.gunny_type or ""
 		self.gunny_weight = flt(wbm.gunny_weight)
+		# Other TPs in the same truck: their Qty, gunny and deduction are not this TP's (see procurement/other_tp.py).
+		apply_other_tps_to_grn(self, wbm_name, wbm.net_weight)
 		self.gate_entry = (wbm.gate_entry or "").strip()
 		self.quality_check = (wbm.quality_check or "").strip()
 		self.qc_sample_no = cint(wbm.slno_of_qc) or get_qc_sl_no(self.quality_check)
@@ -647,6 +649,11 @@ class GRNNote(Document):
 
 	def _apply_wbm_bag_details(self, wbm_name: str):
 		jute, plastic, total = _wbm_bag_counts_from_child_table(wbm_name)
+		# A truck that also carried other TPs: its own TP has the truck's bags less the other TPs' bags.
+		other_jute, other_plastic = other_tp_bags_of_truck(wbm_name)
+		if other_jute or other_plastic:
+			jute, plastic = max(jute - other_jute, 0), max(plastic - other_plastic, 0)
+			total = jute + plastic
 		self.jute_bags = jute
 		self.plastic_bags = plastic
 		self.total_bags = total

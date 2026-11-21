@@ -11,6 +11,8 @@ from ivri_od.procurement.doctype.rst_details.rst_details import (
 	RSTDetails,
 	fetch_mill_and_agent_from_tp,
 	resolve_rst_tp_details,
+	rst_party_key,
+	rst_tp_key,
 	try_get_matching_transit_pass,
 )
 
@@ -1040,6 +1042,67 @@ class TestRSTRegressionSyncNoDB(unittest.TestCase):
 		self.assertEqual((values["pass_unique_key"], values["party_name"], values["is_farmer_or_agent"]), ("", "Whoever", 0))
 
 
+class TestRSTRepeatNoNoDB(unittest.TestCase):
+	"""RST No may repeat for another Party Name or TP No. Mocked: no site, no database."""
+
+	def setUp(self):
+		frappe.local.lang = "en"
+
+		def throw(msg, *args, **kwargs):
+			raise frappe.ValidationError(msg)
+
+		self.db = MagicMock()
+		self.rows = []
+		patches = [
+			patch(f"{MODULE}.frappe.throw", side_effect=throw),
+			patch(f"{MODULE}.frappe.db", self.db),
+			patch(f"{MODULE}.frappe.get_all", side_effect=lambda *a, **k: self.rows),
+			patch(f"{MODULE}._", side_effect=lambda text: text),
+			patch(f"{MODULE}.frappe.bold", side_effect=lambda text: text),
+		]
+		for p in patches:
+			p.start()
+			self.addCleanup(p.stop)
+
+	def _doc(self, rst_no="5395", party="SITARAM AGRAWAL", tp_no="0", new=True):
+		doc = RSTDetails.__new__(RSTDetails)
+		doc.rst_no, doc.party_name, doc.tp_no, doc.name = rst_no, party, tp_no, "5395-9"
+		doc.is_new = lambda: new
+		return doc
+
+	def _row(self, name, party, tp_no):
+		return frappe._dict(name=name, party_name=party, tp_no=tp_no)
+
+	def test_keys_ignore_case_spaces_and_blank_tp(self):
+		self.assertEqual(rst_party_key("  Sitaram   AGRAWAL "), "sitaram agrawal")
+		self.assertEqual(rst_tp_key("0"), rst_tp_key(""))
+		self.assertEqual(rst_tp_key(None), rst_tp_key("000"))
+		self.assertEqual(rst_tp_key(" tp 56 "), "tp56")
+
+	def test_same_rst_party_and_tp_is_blocked(self):
+		self.rows = [self._row("5395", "SITARAM AGRAWAL", "")]
+		with self.assertRaises(frappe.ValidationError):
+			self._doc(party=" sitaram agrawal", tp_no="0")._validate_unique_rst_no()
+
+	def test_other_tp_or_other_party_is_allowed(self):
+		self.rows = [self._row("5395", "SITARAM AGRAWAL", "0")]
+		self._doc(tp_no="999")._validate_unique_rst_no()
+		self._doc(party="BAGHA MAHALING")._validate_unique_rst_no()
+
+	def test_autoname_adds_suffix_for_repeat(self):
+		taken = {"5395", "5395-1"}
+		self.db.exists.side_effect = lambda doctype, name: name in taken
+		doc = self._doc(rst_no=" 5395 ")
+		doc.autoname()
+		self.assertEqual((doc.name, doc.rst_no), ("5395-2", "5395"))
+
+	def test_autoname_keeps_rst_no_when_free(self):
+		self.db.exists.return_value = False
+		doc = self._doc(rst_no="7001")
+		doc.autoname()
+		self.assertEqual(doc.name, "7001")
+
+
 class TestRSTDetailsTPLogic(FrappeTestCase):
 	@classmethod
 	def setUpClass(cls):
@@ -1165,8 +1228,11 @@ class TestRSTDetailsTPLogic(FrappeTestCase):
 		doc.save(ignore_permissions=True)
 		self.assertEqual(doc.tp_status, "TP No Not Received")
 
-		# Cleanup
-		frappe.delete_doc("RST Details", rst_no, force=True, ignore_permissions=True)
+		# Cleanup: the RST made a weighment and its GRN Note; an RST with a GRN cannot be deleted.
+		wbm = frappe.db.get_value("RST Details", doc.name, "weigh_bridge_measurement")
+		for grn in frappe.get_all("GRN Note", filters={"weigh_bridge_measurement": wbm}, pluck="name") if wbm else []:
+			frappe.delete_doc("GRN Note", grn, force=True, ignore_permissions=True)
+		frappe.delete_doc("RST Details", doc.name, force=True, ignore_permissions=True)
 
 	def test_rst_document_saves_ppc_mismatch_and_invalid_tp_no(self):
 		"""A mismatched PPC or an unknown TP No is saved with its status, never blocked."""

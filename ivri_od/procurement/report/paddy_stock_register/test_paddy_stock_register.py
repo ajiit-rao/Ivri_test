@@ -172,19 +172,18 @@ class TestSeasonFilter(IntegrationTestCase):
 
 	def test_period(self):
 		import frappe
-		from frappe.utils import add_days
 
 		from ivri_od.procurement.stock_register import set_period
 
 		filters = frappe._dict()
-		# No Season Master dates: first to last day with data.
-		set_period(filters, frappe._dict(start_date=None, end_date=None), MOVEMENTS)
+		# Always the first to the last day with data.
+		set_period(filters, frappe._dict(names=["Kharif 2025"]), MOVEMENTS)
 		self.assertEqual((filters.from_date, filters.to_date), (getdate("2025-09-30"), getdate("2025-12-03")))
-		# Season Master dates win.
-		season = frappe._dict(start_date=getdate("2025-10-01"), end_date=getdate("2026-03-31"))
+		# Season Master Start / End Date are never used, even when they are set.
+		season = frappe._dict(start_date=getdate("2025-10-01"), end_date=getdate("2025-10-31"))
 		set_period(filters, season, MOVEMENTS)
-		self.assertEqual((filters.from_date, filters.to_date), (getdate("2025-10-01"), getdate("2026-03-31")))
-		# Season still running: not past today.
+		self.assertEqual((filters.from_date, filters.to_date), (getdate("2025-09-30"), getdate("2025-12-03")))
+		# No data: today only.
 		today = getdate()
-		set_period(filters, frappe._dict(start_date=add_days(today, -5), end_date=add_days(today, 100)), [])
-		self.assertEqual((filters.from_date, filters.to_date), (add_days(today, -5), today))
+		set_period(filters, season, [])
+		self.assertEqual((filters.from_date, filters.to_date), (today, today))

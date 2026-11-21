@@ -4,8 +4,8 @@ normal rice delivery to FCI / RRC, progressive totals and C.B., in Quintal (4 de
 
 Same filters as Paddy Stock Register (shared: ivri_od/procurement/stock_register.py): Mill, KMS Year,
 Season (Both / Kharif / Rabi), District (blank = all districts); no From / To Date: the days are the
-Season Master Start - End Date (not past today), else the first to the last day with data.
-"Prog." columns count from the season Start Date.
+first to the last day with data. "Prog." columns count every movement of the season.
+(Season Master Start / End Date are not used: only RST Details uses them, for its Season Code.)
 
 Data sources (all of the Mill, KMS Year, Season and District):
 - Receipt from Milling: Paddy Stock Register's "Issue for Milling" of the same day (PVR "Paddy Milled
@@ -64,7 +64,7 @@ def execute(filters=None):
 	notes = []
 	movements = get_movements(filters, filters.to_date, notes)
 	stock_register.set_period(filters, season, movements)
-	data = build_rows(season.start_date, filters.from_date, filters.to_date, 0, movements)
+	data = build_rows(None, filters.from_date, filters.to_date, 0, movements)
 
 	title = stock_register.get_title("RICE STOCK REGISTER", filters)
 	if data:

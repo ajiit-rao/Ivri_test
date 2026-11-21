@@ -176,7 +176,8 @@
    {
     "doctype": "Portal Site Section",
     "section_name": "Gunny Stock Register Details",
-    "key_columns": "Date - A",
+    "key_columns": "KMS Year, Season, Date - A",
+    "filter_columns": "KMS Year = ddlKmsYear\nSeason = ddlSeason",
     "enabled": 1,
     "page_match": "DateWiseGunnyStockRegister.aspx",
     "detail_link_text": "",
@@ -184,7 +185,7 @@
     "download_receipt": 0,
     "receipt_link_text": "",
     "table_match": "Gunny Stock Register Details",
-    "read_new_only": 1
+    "read_new_only": 0
    }
   ],
   "mill_id_labels": "Mill ID, Mill Code, Miller Code, Miller ID",

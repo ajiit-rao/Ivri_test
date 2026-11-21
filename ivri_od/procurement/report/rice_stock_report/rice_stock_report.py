@@ -2,8 +2,8 @@
 """Rice Stock Report: monthly OB, rice received from milling, rice delivered to FCI and RRC, and CB.
 
 Filters: Mill Name, KMS Year, Season (Both / Kharif / Rabi), District (optional).
-No From / To Month: the months shown are the Season Master Start Date - End Date of the chosen
-season(s), else (dates not set) the first to the last month with data (as in Stock Account for Paddy).
+No From / To Month: the months shown are the first to the last month with data (as in Stock Account
+for Paddy). (Season Master Start / End Date are not used: only RST Details uses them, for its Season Code.)
 Season: Rice Received is the Issue for Milling of that season only; FCI / RRC deliveries only of the
 DCs whose Season in DCRO "View DC" is that season. Both: every row of the KMS Year.
 - Rice Received from Milling: the Paddy Stock Register's Issue for Milling (date-wise) of the mill
@@ -50,7 +50,6 @@ from ivri_od.procurement.report.stock_account_for_paddy.stock_account_for_paddy 
 	get_months,
 	parse_portal_date,
 	season_master_year,
-	season_period,
 	statement_period,
 )
 
@@ -76,8 +75,8 @@ def execute(filters=None):
 	crop_season = validate_filters(filters)
 	year = int(season_master_year(filters.kms_year))
 
-	start, end = season_period(get_kms_season_masters(filters.kms_year, crop_season))
-	to_date = end or NO_END
+	get_kms_season_masters(filters.kms_year, crop_season)  # stops when the KMS Year has no Season Master
+	to_date = NO_END
 
 	rice_percentage = get_rice_percentage(filters.mill)
 	received = get_rice_received(
@@ -94,9 +93,9 @@ def execute(filters=None):
 		filters.district, RRC_DISTRICT, season_dcs=season_dcs,
 	)
 
-	# Months: Season Master dates, else the first to the last month with data.
+	# Months: the first to the last month with data.
 	movements = received + [(when, None) for when, _depot, _qty in fci + rrc]
-	from_date, to_date = statement_period(start, end, movements)
+	from_date, to_date = statement_period(movements)
 
 	columns = get_columns(fci_depots, rrc_depots)
 	data = build_rows(get_months(from_date, to_date), from_date, received, fci, rrc, fci_depots, rrc_depots)

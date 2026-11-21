@@ -2,7 +2,7 @@
  "actions": [],
  "allow_import": 1,
  "allow_rename": 1,
- "autoname": "field:rst_no",
+ "autoname": "",
  "creation": "2026-09-24 14:57:35.867304",
  "doctype": "DocType",
  "document_type": "Document",
@@ -45,7 +45,10 @@
   "column_break_bags",
   "old_bags",
   "new_bags",
-  "total_bags"
+  "total_bags",
+  "other_tp_section",
+  "other_tp_details",
+  "other_tp_qty"
  ],
  "fields": [
   {
@@ -55,7 +58,7 @@
    "in_standard_filter": 1,
    "label": "RST No",
    "reqd": 1,
-   "unique": 1
+   "description": "The same RST No can be used again for a different Party Name or TP No."
   },
   {
    "fieldname": "vehicle_no",
@@ -328,15 +331,35 @@
    "label": "Total Bags",
    "read_only": 1,
    "description": "Jute Bags + Plastic Bags."
+  },
+  {
+   "fieldname": "other_tp_section",
+   "fieldtype": "Section Break",
+   "label": "Other TPs in this RST",
+   "depends_on": "eval:doc.tp_status == 'TP Received' || (doc.other_tp_details || []).length",
+   "description": "One truck carried paddy of more TPs: add each other TP with its Qty. Each gets its own Weigh Bridge and GRN. Same rows as the Mandi Book (click the RST No)."
+  },
+  {
+   "fieldname": "other_tp_details",
+   "fieldtype": "Table",
+   "label": "Other TPs",
+   "options": "Weighment Other TP"
+  },
+  {
+   "fieldname": "other_tp_qty",
+   "fieldtype": "Float",
+   "label": "Other TP Qty (QT)",
+   "read_only": 1,
+   "precision": "3"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-18 19:30:00.000000",
+ "modified": "2026-11-20 13:00:00.000000",
  "modified_by": "Administrator",
  "module": "Procurement",
  "name": "RST Details",
- "naming_rule": "By fieldname",
+ "naming_rule": "By script",
  "owner": "Administrator",
  "permissions": [
   {

@@ -7,6 +7,7 @@ import frappe
 from frappe.tests import IntegrationTestCase
 
 from ivri_od.procurement.report.joint_custody_and_maintenance_charge_report.joint_custody_and_maintenance_charge_report import (
+	NO_END,
 	build_rows,
 	get_kms_months,
 	get_summary,
@@ -101,14 +102,18 @@ class TestJointCustodyAndMaintenanceChargeReport(IntegrationTestCase):
 			patch(f"{MODULE}.get_issue_for_milling", return_value=[(date(2025, 1, 2), "issue_for_milling", 30)]) as issue,
 		):
 			entries, _skipped = get_entries(
-				frappe._dict(mill="M1", kms_year="24-25", district="D1"),
-				[kharif], "Kharif", date(2024, 10, 1), date(2025, 3, 31),
+				frappe._dict(mill="M1", kms_year="24-25", district="D1"), [kharif], "Kharif"
 			)
-		tps.assert_called_with(tps.call_args[0][0], ["Kharif 2024"], date(2025, 3, 31))
+		# Season Master Start / End Date are never used: no end date for the Transit Passes.
+		tps.assert_called_with(tps.call_args[0][0], ["Kharif 2024"], NO_END)
 		self.assertEqual(issue.call_args.kwargs["crop_season"], "Kharif")
-		# The May transfer is after Kharif's End Date: not counted.
+		# Mill Paddy Transfer has no season: every transfer counts, the May one too.
 		self.assertEqual(
-			sorted(entries), [(date(2024, 12, 5), "transfer", 50), (date(2024, 12, 10), "pacs", 100), (date(2025, 1, 2), "issue", 30)]
+			sorted(entries),
+			[
+				(date(2024, 12, 5), "transfer", 50), (date(2024, 12, 10), "pacs", 100),
+				(date(2025, 1, 2), "issue", 30), (date(2025, 5, 5), "transfer", 70),
+			],
 		)
 		opening, movements = split_entries(entries, date(2025, 1, 1), date(2025, 3, 31))
 		self.assertEqual(opening, 150)  # December receipts before the first month shown

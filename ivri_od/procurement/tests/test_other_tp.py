@@ -149,7 +149,8 @@ class TestSplitWeighment(unittest.TestCase):
 		self.assertEqual(flt(child.rst_net_weight, 3), 250)
 		self.assertEqual(flt(child.deduction, 3), 0)  # not the truck's 5
 		self.assertEqual(flt(child.net_weight, 3), 80)
-		self.assertEqual(child.total_bags, 500)
+		# Its bags are its own (given on its Other TPs row, 0 by default), never the truck's 500.
+		self.assertFalse(child.total_bags)
 
 	def test_own_deduction_lowers_its_net(self):
 		self.assertEqual(flt(_split(deduction=2).net_weight, 3), 78)
@@ -182,20 +183,31 @@ class TestMandiBookLine(unittest.TestCase):
 		return mandi_book._rst_lines([doc], wbms, {})[0]
 
 	def test_truck_grn_counts_only_its_share(self):
+		# Truck of 260 QT gross also carried 80 QT of another TP: Gross stays the truck's (Load - Tare),
+		# Other TP Qty 80 shows beside it, and Gross - Other TP Qty - Gunny - Deduction = this TP's Net.
 		line = self._line(260, 5, 5, 170, 80)
-		self.assertAlmostEqual(line["gross_weight"] - line["gunny_weight"] - line["deduction"], 170, places=3)
+		self.assertEqual(flt(line["gross_weight"], 3), 260)
+		self.assertEqual(flt(line["load_weight"] - line["tare_weight"], 3), 260)
+		self.assertEqual(flt(line["other_tp_qty"], 3), 80)
+		self.assertAlmostEqual(
+			line["gross_weight"] - line["other_tp_qty"] - line["gunny_weight"] - line["deduction"], 170, places=3
+		)
 		self.assertEqual(flt(line["net_weight"], 3), 170)
 
 	def test_split_grn_gets_its_share_of_the_truck(self):
-		# Split weighment of 80 QT with its own Deduction 2: the truck's weights, Net 78.
+		# Split weighment of 80 QT gross with its own Deduction 2 (no gunny of its own): the truck's weights,
+		# Other TP Qty = 260 - 80 = 180, Net 78.
 		wbm = dict(
-			load_weight=400, tare_weight=140, gross_weight=260, gunny_weight=5, deduction=2, net_weight=78,
+			load_weight=400, tare_weight=140, gross_weight=260, gunny_weight=0, deduction=2, net_weight=78,
 			rst_net_weight=250, split_from_weighment="WBM-TRUCK", split_qty=80,
 		)
-		line = self._line(260, 5, 2, 78, 170, wbm=wbm)
-		self.assertEqual(flt(line["gross_weight"], 3), 83.2)  # 260 x 80/250
+		line = self._line(260, 0, 2, 78, 180, wbm=wbm)
+		self.assertEqual(flt(line["gross_weight"], 3), 260)
+		self.assertEqual(flt(line["other_tp_qty"], 3), 180)
 		self.assertEqual(flt(line["net_weight"], 3), 78)
-		self.assertAlmostEqual(line["gross_weight"] - line["gunny_weight"] - line["deduction"], 78, places=3)
+		self.assertAlmostEqual(
+			line["gross_weight"] - line["other_tp_qty"] - line["gunny_weight"] - line["deduction"], 78, places=3
+		)
 
 	def test_line_unchanged_without_other_tps(self):
 		line = self._line(260, 5, 5, 250, 0)
